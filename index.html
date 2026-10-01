@@ -743,6 +743,15 @@ body {
     </div>
   </div>
 
+  <!-- PWA 安装按钮（默认隐藏，浏览器支持时才显示） -->
+<div id="install-banner" style="display:none; margin-bottom:16px;">
+  <div class="card" style="background:linear-gradient(135deg, rgba(181,234,215,0.7), rgba(232,248,245,0.7)); border:1.5px solid var(--mint); text-align:center; padding:18px;">
+    <div style="font-size:15px; font-weight:700; color:var(--text-deep); margin-bottom:6px;">📲 安装到桌面</div>
+    <div style="font-size:12px; color:var(--text); margin-bottom:14px; line-height:1.6;">像 App 一样使用，点图标就能打开</div>
+    <button id="install-btn" style="padding:12px 32px; border:none; border-radius:999px; background:var(--accent); color:white; font-size:14px; font-weight:700; cursor:pointer; font-family:inherit;">一键安装</button>
+  </div>
+</div>
+
   <!-- ============ Tab2: 日记 ============ -->
   <div class="tab-content" id="tab-diary">
     <div class="card">
