@@ -2886,6 +2886,7 @@ function quickAddLog() {
   inp.value = '';
   showToast('📝 已记录');
   renderSubjectDetail();
+  CloudSync.pushStudyDay(getTodayStr());
 }
 
 function addLogToDate(dateStr) {
@@ -2897,12 +2898,14 @@ function addLogToDate(dateStr) {
   inp.value = '';
   showToast('📝 已记录');
   renderSubjectDetail();
+  CloudSync.pushStudyDay(dateStr);
 }
 
 function deleteLogItem(dateStr, index) {
   STORE.deleteLog(dateStr, currentSubjectName, index);
   showToast('已删除该条记录');
   renderSubjectDetail();
+  CloudSync.pushStudyDay(dateStr);
 }
 
 /* ============================================================
@@ -3460,6 +3463,11 @@ function checkAchievements() {
     }
   });
 
+  // 有新成就就推到云端
+  if (newOnes.length > 0) {
+    CloudSync.pushAchievements();
+  }
+
   return newOnes;
 }
 
@@ -3551,6 +3559,7 @@ function markAchievementRedeemed(id) {
   target.redeemedAt = Date.now();
   setAchievements(all);
   renderAchievements();
+  CloudSync.pushAchievements();
   return true;
 }
 
