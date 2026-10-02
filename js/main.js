@@ -6,6 +6,12 @@ const SUPABASE_URL = 'https://lbewnabiomoxzufbncfy.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_mKDoj840VIINo5w1moFg0A__JzMQhph';
 
 const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+// 从本地 session 取当前用户（不发网络请求，断网也能用）
+async function getCurrentUser() {
+  const { data: { session } } = await supabaseClient.auth.getSession();
+  return session ? session.user : null;
+}
+
 
 /* ============================================================
    登录 / 注册逻辑
@@ -77,16 +83,33 @@ async function handleAuth() {
   }
 }
 
-// 自动检查登录状态（页面刷新时触发）
-supabaseClient.auth.onAuthStateChange((event, session) => {
+// ============ 登录状态检查（修复闪烁） ============
+// 页面初始化时，先隐藏登录页（避免闪一下），再用 getSession 判断
+document.getElementById('auth-overlay').style.display = 'none';
+
+(async function initAuth() {
+  const { data: { session } } = await supabaseClient.auth.getSession();
   const overlay = document.getElementById('auth-overlay');
   if (session) {
     overlay.style.display = 'none';
     console.log('已登录:', session.user.email);
-   updateAccountEmail(session.user);
+    updateAccountEmail(session.user);
     trySyncOnce();
-        loadProfile();
-            loadLetter();
+    loadProfile();
+    loadLetter();
+  } else {
+    overlay.style.display = 'flex';
+    updateAccountEmail(null);
+  }
+})();
+
+// 后续只监听状态"变化"，不处理 INITIAL_SESSION（避免闪烁）
+supabaseClient.auth.onAuthStateChange((event, session) => {
+  if (event === 'INITIAL_SESSION') return;
+  const overlay = document.getElementById('auth-overlay');
+  if (session) {
+    overlay.style.display = 'none';
+    updateAccountEmail(session.user);
   } else {
     overlay.style.display = 'flex';
     updateAccountEmail(null);
@@ -110,7 +133,7 @@ async function trySyncOnce() {
   hasSyncedThisSession = true;
   sessionStorage.setItem('cloud_synced', '1');
 
-  const { data: { user } } = await supabaseClient.auth.getUser();
+  const user = await getCurrentUser();
   if (!user) return;
 
   // ===== 关键：检测是否切换了账号 =====
@@ -225,7 +248,7 @@ async function pickAvatar(index) {
   closeAvatarPicker();
   showToast('正在保存…');
 
-  const { data: { user } } = await supabaseClient.auth.getUser();
+  const user = await getCurrentUser();
   if (!user) return;
   currentProfile.avatarUrl = '';
   const { error } = await supabaseClient
@@ -237,6 +260,29 @@ async function pickAvatar(index) {
   } else {
     showToast('✅ 头像已更新');
   }
+}
+
+// 改昵称
+async function changeNickname() {
+  const cur = currentProfile.nickname || '';
+  const name = prompt('输入新的昵称（最多 12 个字）', cur);
+  if (name === null) return;
+  const trimmed = name.trim();
+  if (!trimmed) { showToast('昵称不能为空'); return; }
+  if (trimmed.length > 12) { showToast('昵称最多 12 个字'); return; }
+
+  const user = await getCurrentUser();
+  if (!user) return;
+
+  const { error } = await supabaseClient
+    .from('profiles')
+    .update({ nickname: trimmed, updated_at: new Date().toISOString() })
+    .eq('id', user.id);
+  if (error) { showToast('保存失败：' + error.message); return; }
+
+  currentProfile.nickname = trimmed;
+  renderProfileHeader();
+  showToast('✅ 昵称已更新');
 }
 
 // 上传自定义头像：压缩到 400x400，上传到 Storage，更新 profiles.avatar_url
@@ -251,7 +297,7 @@ async function uploadAvatar(event) {
   }
   showToast('正在处理图片…');
 
-  const { data: { user } } = await supabaseClient.auth.getUser();
+  const user = await getCurrentUser();
   if (!user) { showToast('未登录'); return; }
 
   // 用 canvas 压缩到 400x400
@@ -369,38 +415,38 @@ function renderProfileHeader() {
 
 // 登录后调用：从云端读 profile，没有就用默认值创建一个
 async function loadProfile() {
-  const { data: { user } } = await supabaseClient.auth.getUser();
+  const user = await getCurrentUser();
   if (!user) return;
 
-  const { data, error } = await supabaseClient
-    .from('profiles')
-    .select('*')
-    .eq('id', user.id)
-    .maybeSingle();
-
-  if (error) {
-    console.log('读取 profile 失败:', error.message);
-    return;
+  let data = null;
+  try {
+    const res = await supabaseClient
+      .from('profiles')
+      .select('*')
+      .eq('id', user.id)
+      .maybeSingle();
+    data = res.data;
+  } catch (e) {
+    console.log('读取 profile 失败，使用默认值');
   }
 
   if (data) {
-    // 已有记录：用云端值
     currentProfile.emoji = data.avatar_emoji || '🍀';
     currentProfile.color = data.avatar_color || '#52B788';
     currentProfile.nickname = data.nickname || (user.user_metadata && user.user_metadata.display_name) || user.email;
-        currentProfile.avatarUrl = data.avatar_url || '';
+    currentProfile.avatarUrl = data.avatar_url || '';
   } else {
-    // 没记录：默认值 + 昵称用注册时填的名字
     const nickname = (user.user_metadata && user.user_metadata.display_name) || user.email || '';
     currentProfile.nickname = nickname;
-    // 顺便在云端建一条
-    await supabaseClient.from('profiles').insert({
-      id: user.id,
-      email: user.email,
-      nickname: nickname,
-      avatar_emoji: currentProfile.emoji,
-      avatar_color: currentProfile.color
-    });
+    try {
+      await supabaseClient.from('profiles').insert({
+        id: user.id,
+        email: user.email,
+        nickname: nickname,
+        avatar_emoji: currentProfile.emoji,
+        avatar_color: currentProfile.color
+      });
+    } catch (e) {}
   }
   renderProfileHeader();
 }
@@ -446,7 +492,7 @@ const CloudSync = {
 
   // 从云端拉所有数据覆盖到本地
   async pullAll() {
-    const { data: { user } } = await supabaseClient.auth.getUser();
+    const user = await getCurrentUser();
     if (!user) return;
 
     const { data: subjects } = await supabaseClient.from('subjects').select('*').eq('user_id', user.id);
@@ -507,7 +553,7 @@ const CloudSync = {
 
     // 推送科目到云端
   async pushSubjects() {
-    const { data: { user } } = await supabaseClient.auth.getUser();
+    const user = await getCurrentUser();
     if (!user) return 'no user';
     const list = JSON.parse(localStorage.getItem('subjects_list') || '[]');
     const del = await supabaseClient.from('subjects').delete().eq('user_id', user.id);
@@ -524,7 +570,7 @@ const CloudSync = {
 
     // 推送考试到云端
   async pushExams() {
-    const { data: { user } } = await supabaseClient.auth.getUser();
+    const user = await getCurrentUser();
     if (!user) return 'no user';
     const list = JSON.parse(localStorage.getItem('exams_list') || '[]');
     const del = await supabaseClient.from('exams').delete().eq('user_id', user.id);
@@ -541,7 +587,7 @@ const CloudSync = {
 
   // 推送某天日记到云端
   async pushDiary(dateStr) {
-    const { data: { user } } = await supabaseClient.auth.getUser();
+    const user = await getCurrentUser();
     if (!user) return;
     const raw = localStorage.getItem('diary_' + dateStr);
     if (!raw) {
@@ -558,7 +604,7 @@ const CloudSync = {
 
   // 推送某天学习记录到云端
   async pushStudyDay(dateStr) {
-    const { data: { user } } = await supabaseClient.auth.getUser();
+    const user = await getCurrentUser();
     if (!user) return;
     const day = JSON.parse(localStorage.getItem('study_' + dateStr) || '{"unassigned":0,"subjects":{}}');
     await supabaseClient.from('study_records').delete().eq('user_id', user.id).eq('date', dateStr);
@@ -583,7 +629,7 @@ const CloudSync = {
 
   // 推送成就到云端
   async pushAchievements() {
-    const { data: { user } } = await supabaseClient.auth.getUser();
+    const user = await getCurrentUser();
     if (!user) return;
     const list = JSON.parse(localStorage.getItem('achievements_list') || '[]');
     if (!list.length) return;
@@ -1782,9 +1828,56 @@ function closeSubjectPage() {
 /* ============================================================
    设置页
    ============================================================ */
-function openSettings() {
+async function openSettings() {
   $('settings-page').classList.add('show');
   document.body.style.overflow = 'hidden';
+  const user = await getCurrentUser();
+  if (user) {
+    const { data } = await supabaseClient.from('profiles').select('show_in_ranking').eq('id', user.id).maybeSingle();
+    const val = (data && data.show_in_ranking === false) ? false : true;
+    renderRankingToggleBtn(val);
+  }
+}
+
+function closeSettings() {
+  $('settings-page').classList.remove('show');
+  document.body.style.overflow = '';
+}
+
+async function toggleShowInRanking() {
+  const user = await getCurrentUser();
+  if (!user) return;
+  const { data } = await supabaseClient
+    .from('profiles')
+    .select('show_in_ranking')
+    .eq('id', user.id)
+    .maybeSingle();
+
+  const currentVal = (data && data.show_in_ranking === false) ? false : true;
+  const targetVal = !currentVal;
+
+  const { error } = await supabaseClient
+    .from('profiles')
+    .update({ show_in_ranking: targetVal })
+    .eq('id', user.id);
+  if (error) { showToast('保存失败：' + error.message); return; }
+
+  renderRankingToggleBtn(targetVal);
+  showToast(targetVal ? '✅ 已开启排行榜展示' : '✅ 已关闭，只出现在"也在努力的"');
+}
+
+function renderRankingToggleBtn(val) {
+  const btn = document.getElementById('ranking-toggle-btn');
+  if (!btn) return;
+  if (val === false) {
+    btn.textContent = '当前：不上榜（点我开启）';
+    btn.style.background = '#FBE9E9';
+    btn.style.color = '#E88A8A';
+  } else {
+    btn.textContent = '当前：上榜（点我关闭）';
+    btn.style.background = '';
+    btn.style.color = '';
+  }
 }
 
 function closeSettings() {
@@ -1795,13 +1888,6 @@ function closeSettings() {
 /* ============================================================
    排行榜
    ============================================================ */
-// 打开排行榜（先显示加载中，再去拉数据）
-function openLeaderboard() {
-  $('leaderboard-page').classList.add('show');
-  document.body.style.overflow = 'hidden';
-  $('leaderboard-body').innerHTML = '<div class="empty-tip">加载中…</div>';
-  loadAndRenderLeaderboard();
-}
 
 function closeLeaderboard() {
   $('leaderboard-page').classList.remove('show');
@@ -1920,7 +2006,7 @@ document.querySelectorAll('#lb-range-tabs .range-tab').forEach(function(btn) {
 });
 
 async function loadAndRenderLeaderboard() {
-  // 按周期构造查询
+  try {
   let query = supabaseClient.from('study_records').select('user_id, seconds, date');
   if (lbCurrentPeriod !== 'total') {
     const range = periodRange(lbCurrentPeriod, getTodayStr());
@@ -1933,42 +2019,56 @@ async function loadAndRenderLeaderboard() {
     return;
   }
 
-  // 按 user_id 累加
   const totals = {};
   (records || []).forEach(function(r) {
     if (!totals[r.user_id]) totals[r.user_id] = 0;
     totals[r.user_id] += (r.seconds || 0);
   });
 
-  // 拉用户资料
   const ids = Object.keys(totals);
-  let profileMap = {};
+  const MIN_SECONDS = 30 * 60;
+  const rankingList = [];
+  const hiddenList = [];
+
   if (ids.length > 0) {
     const { data: profiles } = await supabaseClient
       .from('profiles')
-      .select('id, nickname, avatar_emoji, avatar_color')
+      .select('id, nickname, avatar_emoji, avatar_color, avatar_url, role, show_in_ranking')
       .in('id', ids);
-    (profiles || []).forEach(function(p) { profileMap[p.id] = p; });
+
+    (profiles || []).forEach(function(p) {
+      const total = totals[p.id] || 0;
+      if (total < MIN_SECONDS) return;
+
+      const item = {
+        userId: p.id,
+        total: total,
+        nickname: p.nickname || '神秘同学',
+        emoji: p.avatar_emoji || '🍀',
+        color: p.avatar_color || '#52B788',
+        avatarUrl: p.avatar_url || ''
+      };
+
+      const forceHidden = (p.role === 'admin' || p.role === 'hidden');
+      const userHidden = (p.show_in_ranking === false);
+
+      if (forceHidden || userHidden) {
+        hiddenList.push(item);
+      } else {
+        rankingList.push(item);
+      }
+    });
   }
 
-  // 合成列表（30 分钟门槛）
-  const MIN_SECONDS = 30 * 60;
-  const list = ids.map(function(id) {
-    const p = profileMap[id] || {};
-    return {
-      userId: id,
-      total: totals[id],
-      nickname: p.nickname || '神秘同学',
-      emoji: p.avatar_emoji || '🍀',
-      color: p.avatar_color || '#52B788'
-    };
-  }).filter(function(x) { return x.total >= MIN_SECONDS; });
-
-  list.sort(function(a, b) { return b.total - a.total; });
-  renderLeaderboardList(list);
+  rankingList.sort(function(a, b) { return b.total - a.total; });
+  hiddenList.sort(function(a, b) { return b.total - a.total; });
+  renderLeaderboardList(rankingList, hiddenList);
+  } catch (e) {
+    $('leaderboard-body').innerHTML = '<div class="empty-tip">网络不好，稍后再试 ☹️</div>';
+  }
 }
 
-function renderLeaderboardList(list) {
+function renderLeaderboardList(list, hiddenList) {
   const box = $('leaderboard-body');
   const emptyText = {
     total: '还没有人上榜',
@@ -1977,14 +2077,12 @@ function renderLeaderboardList(list) {
     monthly: '本月还没人上榜'
   };
 
-  if (!list.length) {
+  if (!list.length && !hiddenList.length) {
     box.innerHTML = '<div class="empty-tip">' + (emptyText[lbCurrentPeriod] || '还没有人上榜') + '<br>学习满 30 分钟就能上榜啦 ☝️</div>';
     return;
   }
 
   let html = '';
-
-  // ---- 前三名领奖台 ----
   const top3 = list.slice(0, 3);
   const rest = list.slice(3);
   const podiumOrder = [];
@@ -1992,36 +2090,57 @@ function renderLeaderboardList(list) {
   if (top3[0]) podiumOrder.push({ item: top3[0], rank: 1, height: 95 });
   if (top3[2]) podiumOrder.push({ item: top3[2], rank: 3, height: 60 });
 
-  html += '<div style="display:flex; align-items:flex-end; justify-content:center; gap:10px; margin-bottom:20px;">';
-  podiumOrder.forEach(function(p) {
-    const it = p.item;
-    html += '<div style="flex:1; max-width:110px; text-align:center;">';
-    html += '<div style="width:48px; height:48px; border-radius:50%; background:' + it.color + '; display:flex; align-items:center; justify-content:center; font-size:24px; margin:0 auto 6px;">' + it.emoji + '</div>';
-    html += '<div style="font-size:12px; font-weight:700; color:var(--text-deep); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; margin-bottom:2px;">' + escapeHtml(it.nickname) + '</div>';
-    html += '<div style="font-size:11px; color:var(--accent); font-weight:600; margin-bottom:6px;">' + formatDurationHM(it.total) + '</div>';
-    html += '<div style="height:' + p.height + 'px; background:linear-gradient(135deg, var(--mint-light), var(--mint-very-light)); border-radius:10px 10px 0 0; display:flex; align-items:center; justify-content:center; font-size:22px;">';
-    if (p.rank === 1) html += '🥇';
-    else if (p.rank === 2) html += '🥈';
-    else html += '🥉';
+  if (podiumOrder.length) {
+    html += '<div style="display:flex; align-items:flex-end; justify-content:center; gap:10px; margin-bottom:20px;">';
+    podiumOrder.forEach(function(p) {
+      const it = p.item;
+      html += '<div style="flex:1; max-width:110px; text-align:center;">';
+      html += renderAvatar(it, 48, 24);
+      html += '<div style="font-size:12px; font-weight:700; color:var(--text-deep); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; margin-bottom:2px;">' + escapeHtml(it.nickname) + '</div>';
+      html += '<div style="font-size:11px; color:var(--accent); font-weight:600; margin-bottom:6px;">' + formatDurationHM(it.total) + '</div>';
+      html += '<div style="height:' + p.height + 'px; background:linear-gradient(135deg, var(--mint-light), var(--mint-very-light)); border-radius:10px 10px 0 0; display:flex; align-items:center; justify-content:center; font-size:22px;">';
+      if (p.rank === 1) html += '🥇';
+      else if (p.rank === 2) html += '🥈';
+      else html += '🥉';
+      html += '</div></div>';
+    });
     html += '</div>';
-    html += '</div>';
-  });
-  html += '</div>';
+  }
 
-  // ---- 4 名往后 ----
   rest.forEach(function(item, i) {
     const rank = i + 4;
     html += '<div class="card" style="display:flex; align-items:center; gap:12px; padding:12px 16px; margin-bottom:8px;">';
     html += '<div style="width:28px; text-align:center; font-size:13px; color:var(--text-light); font-weight:700;">' + rank + '</div>';
-    html += '<div style="width:36px; height:36px; border-radius:50%; background:' + item.color + '; display:flex; align-items:center; justify-content:center; font-size:18px;">' + item.emoji + '</div>';
+    html += renderAvatar(item, 36, 18);
     html += '<div style="flex:1; min-width:0;">';
     html += '<div style="font-size:13px; font-weight:600; color:var(--text-deep); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">' + escapeHtml(item.nickname) + '</div>';
     html += '<div style="font-size:11px; color:var(--accent); font-weight:600; margin-top:2px;">' + formatDurationHM(item.total) + '</div>';
-    html += '</div>';
-    html += '</div>';
+    html += '</div></div>';
   });
 
+  if (hiddenList.length) {
+    html += '<div style="margin-top:22px; padding-top:16px; border-top:1px dashed rgba(82,183,136,0.35); text-align:center;">';
+    html += '<div style="font-size:11px; color:var(--text-light); margin-bottom:10px;">—— 也在努力的 ——</div>';
+    hiddenList.forEach(function(it) {
+      html += '<div style="display:inline-flex; align-items:center; gap:10px; padding:10px 16px; background:rgba(255,255,255,0.5); border-radius:999px; margin:4px;">';
+      html += renderAvatar(it, 34, 17);
+      html += '<div style="text-align:left;">';
+      html += '<div style="font-size:13px; font-weight:700; color:var(--text-deep);">' + escapeHtml(it.nickname) + '</div>';
+      html += '<div style="font-size:11px; color:var(--accent); font-weight:600;">' + formatDurationHM(it.total) + '</div>';
+      html += '</div></div>';
+    });
+    html += '</div>';
+  }
+
   box.innerHTML = html;
+}
+
+// 头像渲染小助手（图片优先，没图片用 emoji）
+function renderAvatar(item, size, fontSize) {
+  if (item.avatarUrl) {
+    return '<div style="width:' + size + 'px; height:' + size + 'px; border-radius:50%; overflow:hidden; flex-shrink:0;"><img src="' + item.avatarUrl + '" style="width:100%; height:100%; object-fit:cover;"></div>';
+  }
+  return '<div style="width:' + size + 'px; height:' + size + 'px; border-radius:50%; background:' + (item.color || '#52B788') + '; display:flex; align-items:center; justify-content:center; font-size:' + fontSize + 'px; flex-shrink:0;">' + (item.emoji || '🍀') + '</div>';
 }
 
 function getSubjectHistory(name) {
@@ -2725,25 +2844,29 @@ document.querySelectorAll('.ach-filter').forEach(b => {
 
 // 从云端拉自己的成就，覆盖本地（姐姐审核后能看到新状态）
 async function refreshAchievementsFromCloud() {
-  const { data: { user } } = await supabaseClient.auth.getUser();
-  if (!user) return;
-  const { data: achs, error } = await supabaseClient
-    .from('achievements')
-    .select('*')
-    .eq('user_id', user.id);
-  if (error || !achs) return;
-  localStorage.setItem('achievements_list', JSON.stringify(
-    achs.map(function(a) {
-      return {
-        id: a.id, type: a.type, periodKey: a.period_key,
-        title: a.title, desc: a.description, reward: a.reward,
-        earnedDate: a.earned_date,
-        earnedAt: a.earned_at ? new Date(a.earned_at).getTime() : Date.now(),
-        status: a.status
-      };
-    })
-  ));
-  renderAchievements();
+  try {
+    const user = await getCurrentUser();
+    if (!user) return;
+    const { data: achs, error } = await supabaseClient
+      .from('achievements')
+      .select('*')
+      .eq('user_id', user.id);
+    if (error || !achs) return;
+    localStorage.setItem('achievements_list', JSON.stringify(
+      achs.map(function(a) {
+        return {
+          id: a.id, type: a.type, periodKey: a.period_key,
+          title: a.title, desc: a.description, reward: a.reward,
+          earnedDate: a.earned_date,
+          earnedAt: a.earned_at ? new Date(a.earned_at).getTime() : Date.now(),
+          status: a.status
+        };
+      })
+    ));
+    renderAchievements();
+  } catch (e) {
+    console.log('成就刷新失败，保留本地数据');
+  }
 }
 
 function renderAchievements() {
@@ -3024,8 +3147,9 @@ function renderHomeAlerts() {
 async function loadLetter() {
   const box = $('home-letter');
   if (!box) return;
+  try {
 
-  const { data: { user } } = await supabaseClient.auth.getUser();
+  const user = await getCurrentUser();
   if (!user) { box.innerHTML = ''; return; }
 
   const { data, error } = await supabaseClient
@@ -3056,6 +3180,9 @@ async function loadLetter() {
     '<span style="font-size:18px; color:var(--accent);">›</span>' +
     '</div>' +
     '</div>';
+  } catch (e) {
+    box.innerHTML = '';
+  }
 }
 
 async function openLetter(id) {
@@ -3222,7 +3349,7 @@ async function clearAllData() {
   showToast('正在清除云端数据…');
 
   // 1. 先清云端
-  const { data: { user } } = await supabaseClient.auth.getUser();
+  const user = await getCurrentUser();
   if (user) {
     try {
       await supabaseClient.from('subjects').delete().eq('user_id', user.id);

@@ -1,11 +1,12 @@
 /* LisinoraPrep Service Worker · 自动更新版（v5） */
-const CACHE_NAME = 'lisinoraprep-v5';
+const CACHE_NAME = 'lisinoraprep-v6';
 
 // 预缓存的静态资源（首次安装时缓存一次）
 const STATIC_ASSETS = [
   './manifest.json',
   './icon-192.png',
-  './icon-512.png'
+  './icon-512.png',
+  './js/vendor/supabase.js'
 ];
 
 self.addEventListener('install', event => {
