@@ -422,15 +422,53 @@ function renderAnomalyCard(a, profile, canHandle) {
   html += '<div style="font-size:11px; color:var(--text); margin-top:2px;">' + escapeHtml(a.date) + ' · <span style="color:#E88A8A; font-weight:700;">' + hours + ' 小时</span></div>';
   html += '</div>';
   if (canHandle) {
-    html += '<div style="display:flex; gap:8px; width:100%;">';
-    html += '<button onclick="handleAnomaly(\'' + a.user_id + '\',\'' + a.date + '\',\'resolved\')" style="flex:1; padding:8px; background:#52B788; color:#fff; border:none; border-radius:10px; font-size:12px; font-weight:700; cursor:pointer; font-family:inherit;">✓ 已解决</button>';
-    html += '<button onclick="handleAnomaly(\'' + a.user_id + '\',\'' + a.date + '\',\'ignored\')" style="flex:1; padding:8px; background:#E8E8E8; color:#666; border:none; border-radius:10px; font-size:12px; font-weight:700; cursor:pointer; font-family:inherit;">⊘ 忽略</button>';
+    html += '<div style="display:flex; gap:6px; width:100%; flex-wrap:wrap;">';
+    html += '<button onclick="handleAnomaly(\'' + a.user_id + '\',\'' + a.date + '\',\'resolved\')" style="flex:1; min-width:80px; padding:8px; background:#52B788; color:#fff; border:none; border-radius:10px; font-size:12px; font-weight:700; cursor:pointer; font-family:inherit;">✓ 已解决</button>';
+    html += '<button onclick="editAnomaly(\'' + a.user_id + '\',\'' + a.date + '\',' + a.total + ')" style="flex:1; min-width:80px; padding:8px; background:#F2C14E; color:#fff; border:none; border-radius:10px; font-size:12px; font-weight:700; cursor:pointer; font-family:inherit;">✏️ 修正时长</button>';
+    html += '<button onclick="handleAnomaly(\'' + a.user_id + '\',\'' + a.date + '\',\'ignored\')" style="flex:1; min-width:80px; padding:8px; background:#E8E8E8; color:#666; border:none; border-radius:10px; font-size:12px; font-weight:700; cursor:pointer; font-family:inherit;">⊘ 忽略</button>';
     html += '</div>';
   } else {
     html += '<button onclick="handleAnomaly(\'' + a.user_id + '\',\'' + a.date + '\',\'pending\')" style="padding:6px 12px; background:#fff; color:#7A9A8C; border:1px solid #D0DDD7; border-radius:8px; font-size:11px; font-weight:700; cursor:pointer; font-family:inherit;">恢复为待处理</button>';
   }
   html += '</div>';
   return html;
+}
+
+async function editAnomaly(userId, date, currentTotal) {
+  const curHours = (currentTotal / 3600).toFixed(1);
+  const input = prompt('输入正确的小时数（当前 ' + curHours + ' 小时）\n\n系统会按比例缩放当天所有科目记录，科目明细会保留。', curHours);
+  if (input === null) return;
+  const newHours = parseFloat(input);
+  if (isNaN(newHours) || newHours < 0) { alert('请输入有效数字'); return; }
+  if (newHours > 24) { alert('单日不能超过 24 小时'); return; }
+  if (newHours === 0) {
+    if (!confirm('新时长为 0，这会把当天记录全部清零。确定吗？')) return;
+  }
+
+  const targetSec = Math.round(newHours * 3600);
+  const ratio = currentTotal > 0 ? (targetSec / currentTotal) : 0;
+
+  // 拉出这一天所有记录
+  const { data: rows, error } = await supabaseClient
+    .from('study_records')
+    .select('id, seconds')
+    .eq('user_id', userId)
+    .eq('date', date);
+  if (error) { alert('读取失败：' + error.message); return; }
+  if (!rows || !rows.length) { alert('没有找到记录'); return; }
+
+  // 逐条按比例更新，并标记为已解决
+  for (let i = 0; i < rows.length; i++) {
+    const newSec = Math.floor((rows[i].seconds || 0) * ratio);
+    const { error: e2 } = await supabaseClient
+      .from('study_records')
+      .update({ seconds: newSec, anomaly_status: 'resolved' })
+      .eq('id', rows[i].id);
+    if (e2) { alert('更新失败：' + e2.message); return; }
+  }
+
+  alert('✅ 已修正为 ' + newHours + ' 小时，并标记为已解决');
+  loadAnomalies();
 }
 
 async function handleAnomaly(userId, date, newStatus) {
