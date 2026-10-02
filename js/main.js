@@ -172,7 +172,7 @@ function updateAccountEmail(user) {
    个人资料（头像 + 昵称）
    ============================================================ */
 // 头像数据存在内存里，避免频繁读库
-let currentProfile = { emoji: '🍀', color: '#52B788', nickname: '' };
+let currentProfile = { emoji: '🍀', color: '#52B788', nickname: '', avatarUrl: '' };
 // 20 个默认头像组合（emoji + 背景色）
 const AVATAR_PRESETS = [
   { emoji: '🍀', color: '#52B788' },
@@ -226,15 +226,116 @@ async function pickAvatar(index) {
 
   const { data: { user } } = await supabaseClient.auth.getUser();
   if (!user) return;
+  currentProfile.avatarUrl = '';
   const { error } = await supabaseClient
     .from('profiles')
-    .update({ avatar_emoji: preset.emoji, avatar_color: preset.color, updated_at: new Date().toISOString() })
+    .update({ avatar_emoji: preset.emoji, avatar_color: preset.color, avatar_url: null, updated_at: new Date().toISOString() })
     .eq('id', user.id);
   if (error) {
     showToast('保存失败：' + error.message);
   } else {
     showToast('✅ 头像已更新');
   }
+}
+
+// 上传自定义头像：压缩到 400x400，上传到 Storage，更新 profiles.avatar_url
+async function uploadAvatar(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  event.target.value = '';
+
+  if (!file.type.startsWith('image/')) {
+    showToast('请选择图片文件');
+    return;
+  }
+  showToast('正在处理图片…');
+
+  const { data: { user } } = await supabaseClient.auth.getUser();
+  if (!user) { showToast('未登录'); return; }
+
+  // 用 canvas 压缩到 400x400
+  let dataUrl;
+  try {
+    dataUrl = await compressImage(file, 400, 400);
+  } catch (e) {
+    showToast('图片处理失败：' + e.message);
+    return;
+  }
+
+  // dataURL → Blob
+  const blob = dataUrlToBlob(dataUrl);
+
+  // 上传路径：avatars/{user_id}/{timestamp}.jpg
+  const fileName = user.id + '/' + Date.now() + '.jpg';
+
+  // 先记住旧 URL，用于删旧文件
+  const oldUrl = currentProfile.avatarUrl;
+
+  const { error: upErr } = await supabaseClient.storage
+    .from('avatars')
+    .upload(fileName, blob, { contentType: 'image/jpeg', upsert: false });
+  if (upErr) { showToast('上传失败：' + upErr.message); return; }
+
+  // 取 public URL
+  const { data: urlData } = supabaseClient.storage.from('avatars').getPublicUrl(fileName);
+  const publicUrl = urlData.publicUrl;
+
+  // 更新 profiles
+  const { error: dbErr } = await supabaseClient
+    .from('profiles')
+    .update({ avatar_url: publicUrl, updated_at: new Date().toISOString() })
+    .eq('id', user.id);
+  if (dbErr) { showToast('保存失败：' + dbErr.message); return; }
+
+  // 删旧文件（如果之前有自定义头像）
+  if (oldUrl && oldUrl.indexOf('/avatars/') >= 0) {
+    const oldPath = oldUrl.split('/avatars/')[1];
+    if (oldPath) {
+      await supabaseClient.storage.from('avatars').remove([oldPath]).catch(function(){});
+    }
+  }
+
+  currentProfile.avatarUrl = publicUrl;
+  renderProfileHeader();
+  closeAvatarPicker();
+  showToast('✅ 头像已更新');
+}
+
+// 用 canvas 把图片压缩到 maxW × maxH（保持比例，居中裁剪）
+function compressImage(file, maxW, maxH) {
+  return new Promise(function(resolve, reject) {
+    const reader = new FileReader();
+    reader.onload = function(e) {
+      const img = new Image();
+      img.onload = function() {
+        const canvas = document.createElement('canvas');
+        canvas.width = maxW;
+        canvas.height = maxH;
+        const ctx = canvas.getContext('2d');
+        // 居中裁剪成正方形
+        const size = Math.min(img.width, img.height);
+        const sx = (img.width - size) / 2;
+        const sy = (img.height - size) / 2;
+        ctx.drawImage(img, sx, sy, size, size, 0, 0, maxW, maxH);
+        resolve(canvas.toDataURL('image/jpeg', 0.85));
+      };
+      img.onerror = function() { reject(new Error('无法读取图片')); };
+      img.src = e.target.result;
+    };
+    reader.onerror = function() { reject(new Error('文件读取失败')); };
+    reader.readAsDataURL(file);
+  });
+}
+
+// dataURL → Blob
+function dataUrlToBlob(dataUrl) {
+  const parts = dataUrl.split(',');
+  const mime = parts[0].match(/:(.*?);/)[1];
+  const bstr = atob(parts[1]);
+  const n = bstr.length;
+  const u8arr = new Uint8Array(n);
+  for (let i = 0; i < n; i++) u8arr[i] = bstr.charCodeAt(i);
+  return new Blob([u8arr], { type: mime });
 }
 
 // 点空白关闭
@@ -252,8 +353,13 @@ function renderProfileHeader() {
   const avatarEl = $('profile-avatar');
   const nameEl = $('profile-nickname');
   if (avatarEl) {
-    avatarEl.textContent = currentProfile.emoji;
-    avatarEl.style.background = currentProfile.color;
+    if (currentProfile.avatarUrl) {
+      avatarEl.innerHTML = '<img src="' + currentProfile.avatarUrl + '" style="width:100%; height:100%; object-fit:cover; border-radius:50%;">';
+      avatarEl.style.background = 'transparent';
+    } else {
+      avatarEl.textContent = currentProfile.emoji;
+      avatarEl.style.background = currentProfile.color;
+    }
   }
   if (nameEl) {
     nameEl.textContent = currentProfile.nickname || '未登录';
@@ -281,6 +387,7 @@ async function loadProfile() {
     currentProfile.emoji = data.avatar_emoji || '🍀';
     currentProfile.color = data.avatar_color || '#52B788';
     currentProfile.nickname = data.nickname || (user.user_metadata && user.user_metadata.display_name) || user.email;
+        currentProfile.avatarUrl = data.avatar_url || '';
   } else {
     // 没记录：默认值 + 昵称用注册时填的名字
     const nickname = (user.user_metadata && user.user_metadata.display_name) || user.email || '';
