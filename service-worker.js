@@ -1,7 +1,7 @@
-/* LisinoraPrep Service Worker · 自动更新版 */
-const CACHE_NAME = 'lisinoraprep-v4';
+/* LisinoraPrep Service Worker · 自动更新版（v5） */
+const CACHE_NAME = 'lisinoraprep-v5';
 
-// 需要预缓存的静态资源（首次安装时缓存一次）
+// 预缓存的静态资源（首次安装时缓存一次）
 const STATIC_ASSETS = [
   './manifest.json',
   './icon-192.png',
@@ -37,36 +37,26 @@ self.addEventListener('fetch', event => {
     if (url.origin !== self.location.origin) return;
   } catch (e) { return; }
 
-  // HTML 页面请求：Network-first（先联网，失败才用缓存）
-  const isHTML = req.headers.get('accept') && req.headers.get('accept').includes('text/html');
-  const isIndex = req.url.endsWith('/') || req.url.endsWith('/index.html');
-
-  if (isHTML || isIndex) {
-    event.respondWith(
-      fetch(req)
-        .then(res => {
-          if (res && res.status === 200) {
-            const clone = res.clone();
-            caches.open(CACHE_NAME).then(cache => cache.put(req, clone));
-          }
-          return res;
-        })
-        .catch(() => caches.match(req).then(cached => cached || caches.match('./index.html')))
-    );
-    return;
-  }
-
-  // 其他静态资源：Cache-first（先缓存，加快加载）
+  // 全部同源 GET：network-first（先联网拿新版，失败才用缓存）
   event.respondWith(
-    caches.match(req).then(cached => {
-      if (cached) return cached;
-      return fetch(req).then(res => {
-        if (res && res.status === 200 && res.type === 'basic') {
+    fetch(req)
+      .then(res => {
+        if (res && res.status === 200) {
           const clone = res.clone();
           caches.open(CACHE_NAME).then(cache => cache.put(req, clone));
         }
         return res;
-      }).catch(() => cached || new Response('Offline', { status: 503 }));
-    })
+      })
+      .catch(() => {
+        return caches.match(req).then(cached => {
+          if (cached) return cached;
+          // 完全离线时，HTML 请求兜底到缓存的 index.html
+          const accept = req.headers.get('accept') || '';
+          if (accept.includes('text/html')) {
+            return caches.match('./index.html');
+          }
+          return new Response('Offline', { status: 503 });
+        });
+      })
   );
 });
