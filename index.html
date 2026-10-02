@@ -22,7 +22,8 @@
     <h2 style="color:#2D6A4F; margin-bottom:8px;">🌿 LisinoraPrep</h2>
     <p style="color:#7A9A8C; font-size:13px; margin-bottom:24px;" id="auth-subtitle">登录你的备考助手</p>
     
-    <input type="email" id="auth-email" placeholder="邮箱" style="width:100%; padding:12px; border:2px solid #B5EAD7; border-radius:12px; margin-bottom:12px; font-size:14px;">
+    <input type="text" id="auth-account" placeholder="名字（中文/网名/emoji 都可以）" style="width:100%; padding:12px; border:2px solid #B5EAD7; border-radius:12px; margin-bottom:6px; font-size:14px;">
+<p style="font-size:11px; color:#7A9A8C; margin:0 0 12px; text-align:left; padding-left:4px;">也可以直接输入邮箱</p>
     <input type="password" id="auth-password" placeholder="密码（至少6位）" style="width:100%; padding:12px; border:2px solid #B5EAD7; border-radius:12px; margin-bottom:20px; font-size:14px;">
     
     <button id="auth-btn" onclick="handleAuth()" style="width:100%; padding:14px; background:#52B788; color:#fff; border:none; border-radius:12px; font-size:15px; font-weight:700; cursor:pointer; margin-bottom:12px;">登录</button>
@@ -267,7 +268,7 @@
         <div class="card">
       <div class="card-title">👤 我的账户</div>
       <div style="font-size:13px; color:var(--text); line-height:1.9; margin-bottom:14px;">
-        当前登录：<span id="account-email" style="color:var(--accent); font-weight:600;">加载中…</span>
+        当前登录：<span id="account-email" style="color:var(--accent); font-weight:600; word-break:break-all;">加载中…</span>
       </div>
       <button class="save-btn small ghost" style="background:#FBE9E9; color:var(--danger); margin-top:0;" onclick="handleLogout()">🚪 退出登录</button>
     </div>

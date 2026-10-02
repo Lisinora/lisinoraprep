@@ -20,17 +20,32 @@ function toggleAuthMode() {
   document.getElementById('auth-toggle-btn').textContent = isLoginMode ? '立即注册' : '去登录';
 }
 
+// 把名字（中文/网名/emoji）编码成合法邮箱
+// 原理：先转成 UTF-8 字节，再每个字节转成两位十六进制
+// 例："小明" → u5c0f660e@lisinoraprep.com
+function nameToEmail(name) {
+  const utf8 = unescape(encodeURIComponent(name));
+  let hex = '';
+  for (let i = 0; i < utf8.length; i++) {
+    hex += utf8.charCodeAt(i).toString(16).padStart(2, '0');
+  }
+  return 'u' + hex + '@lisinoraprep.com';
+}
+
 async function handleAuth() {
-  const email = document.getElementById('auth-email').value.trim();
+  const account = document.getElementById('auth-account').value.trim();
   const password = document.getElementById('auth-password').value;
   const errorDiv = document.getElementById('auth-error');
   const btn = document.getElementById('auth-btn');
   
-  if (!email || !password) {
-    errorDiv.textContent = '请填写邮箱和密码';
+  if (!account || !password) {
+    errorDiv.textContent = '请填写名字（或邮箱）和密码';
     errorDiv.style.display = 'block';
     return;
   }
+  
+  // 有 @ 就当邮箱；没有就当名字，编码成邮箱
+  const email = account.indexOf('@') >= 0 ? account : nameToEmail(account);
   
   errorDiv.style.display = 'none';
   btn.textContent = '处理中...';
@@ -41,13 +56,20 @@ async function handleAuth() {
       const { error } = await supabaseClient.auth.signInWithPassword({ email, password });
       if (error) throw error;
     } else {
-      const { error } = await supabaseClient.auth.signUp({ email, password });
+      const { error } = await supabaseClient.auth.signUp({ email, password, options: { data: { display_name: account } } });
       if (error) throw error;
-      alert('注册成功！如果开启了邮箱验证，请去邮箱点确认链接再回来登录。');
+      alert('注册成功！现在可以登录了。');
       toggleAuthMode();
     }
   } catch (err) {
-    errorDiv.textContent = err.message || '操作失败';
+    let msg = err.message || '操作失败';
+    // 把 Supabase 的英文报错换成弟弟妹妹看得懂的话
+    if (msg.indexOf('already registered') >= 0 || msg.indexOf('already been registered') >= 0) {
+      msg = '这个名字已经被用了，换一个吧（加上小名/昵称试试）';
+    } else if (msg.indexOf('Invalid login credentials') >= 0) {
+      msg = '名字或密码不对，再试试～';
+    }
+    errorDiv.textContent = msg;
     errorDiv.style.display = 'block';
   } finally {
     btn.textContent = isLoginMode ? '登录' : '注册';
@@ -61,7 +83,7 @@ supabaseClient.auth.onAuthStateChange((event, session) => {
   if (session) {
     overlay.style.display = 'none';
     console.log('已登录:', session.user.email);
-    updateAccountEmail(session.user.email);
+   updateAccountEmail(session.user);
     trySyncOnce();
   } else {
     overlay.style.display = 'flex';
@@ -69,10 +91,17 @@ supabaseClient.auth.onAuthStateChange((event, session) => {
   }
 });
 
-/* ============================================================
-   登录时同步（只做一次）
-   ============================================================ */
 let hasSyncedThisSession = sessionStorage.getItem('cloud_synced') === '1';
+
+// 清空本地用户数据（保留设备级设置，如 data_version、last_day）
+function clearLocalUserData() {
+  ['subjects_list', 'exams_list', 'achievements_list'].forEach(k => localStorage.removeItem(k));
+  Object.keys(localStorage).forEach(k => {
+    if (k.startsWith('study_') || k.startsWith('diary_')) {
+      localStorage.removeItem(k);
+    }
+  });
+}
 
 async function trySyncOnce() {
   if (hasSyncedThisSession) return;
@@ -81,6 +110,15 @@ async function trySyncOnce() {
 
   const { data: { user } } = await supabaseClient.auth.getUser();
   if (!user) return;
+
+  // ===== 关键：检测是否切换了账号 =====
+  const lastUserId = localStorage.getItem('current_user_id');
+  if (lastUserId && lastUserId !== user.id) {
+    console.log('🔄 检测到切换账号，清空本地数据避免污染');
+    clearLocalUserData();
+  }
+  // 记录当前用户 id（退出登录时不清，用于下次对比）
+  localStorage.setItem('current_user_id', user.id);
 
   // 看云端有没有数据
   const { count } = await supabaseClient
@@ -112,9 +150,21 @@ async function trySyncOnce() {
 /* ============================================================
    账户信息 + 退出登录
    ============================================================ */
-function updateAccountEmail(email) {
+// 显示当前登录的账号：优先显示用户输入的名字，没有名字才显示邮箱
+function updateAccountEmail(user) {
   const el = document.getElementById('account-email');
-  if (el) el.textContent = email || '未登录';
+  if (!el) return;
+  if (!user) {
+    el.textContent = '未登录';
+    return;
+  }
+  // 注册时存进 user_metadata 的 display_name
+  const meta = user.user_metadata || {};
+  const displayName = meta.display_name;
+  // 老账号没有 display_name 就用邮箱，并做长度截断
+  let text = displayName || user.email || '未登录';
+  if (text.length > 20) text = text.slice(0, 18) + '…';
+  el.textContent = text;
 }
 
 async function handleLogout() {
