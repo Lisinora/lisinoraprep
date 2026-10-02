@@ -1683,6 +1683,238 @@ function closeSettings() {
   document.body.style.overflow = '';
 }
 
+/* ============================================================
+   排行榜
+   ============================================================ */
+// 打开排行榜（先显示加载中，再去拉数据）
+function openLeaderboard() {
+  $('leaderboard-page').classList.add('show');
+  document.body.style.overflow = 'hidden';
+  $('leaderboard-body').innerHTML = '<div class="empty-tip">加载中…</div>';
+  loadAndRenderLeaderboard();
+}
+
+function closeLeaderboard() {
+  $('leaderboard-page').classList.remove('show');
+  document.body.style.overflow = '';
+}
+
+// 从云端拉数据，聚合成榜单
+async function loadAndRenderLeaderboard() {
+  // 一次拉所有学习记录（只拿需要的字段）
+  const { data: records, error } = await supabaseClient
+    .from('study_records')
+    .select('user_id, seconds');
+
+  if (error) {
+    $('leaderboard-body').innerHTML = '<div class="empty-tip">加载失败：' + escapeHtml(error.message) + '</div>';
+    return;
+  }
+
+  // 按 user_id 累加总秒数
+  const totals = {};
+  (records || []).forEach(function(r) {
+    if (!totals[r.user_id]) totals[r.user_id] = 0;
+    totals[r.user_id] += (r.seconds || 0);
+  });
+
+  // 拉所有相关用户的资料
+  const ids = Object.keys(totals);
+  let profileMap = {};
+  if (ids.length > 0) {
+    const { data: profiles } = await supabaseClient
+      .from('profiles')
+      .select('id, nickname, avatar_emoji, avatar_color')
+      .in('id', ids);
+    (profiles || []).forEach(function(p) { profileMap[p.id] = p; });
+  }
+
+  // 合成榜单（低于 30 分钟不进榜）
+  const MIN_SECONDS = 30 * 60;
+  const list = ids.map(function(id) {
+    const p = profileMap[id] || {};
+    return {
+      userId: id,
+      total: totals[id],
+      nickname: p.nickname || '神秘同学',
+      emoji: p.avatar_emoji || '🍀',
+      color: p.avatar_color || '#52B788'
+    };
+  }).filter(function(x) { return x.total >= MIN_SECONDS; });
+
+  list.sort(function(a, b) { return b.total - a.total; });
+
+  renderLeaderboardList(list);
+}
+
+// 渲染榜单列表
+function renderLeaderboardList(list) {
+  const box = $('leaderboard-body');
+  if (!list.length) {
+    box.innerHTML = '<div class="empty-tip">还没有人上榜<br>学习满 30 分钟就能上榜啦 ☝️</div>';
+    return;
+  }
+
+  let html = '';
+  list.forEach(function(item, i) {
+    const rank = i + 1;
+    let rankHtml;
+    if (rank === 1) rankHtml = '<span style="font-size:24px;">🥇</span>';
+    else if (rank === 2) rankHtml = '<span style="font-size:24px;">🥈</span>';
+    else if (rank === 3) rankHtml = '<span style="font-size:24px;">🥉</span>';
+    else rankHtml = '<span style="font-size:14px; color:var(--text-light); font-weight:700;">' + rank + '</span>';
+
+    html += '<div class="card" style="display:flex; align-items:center; gap:12px; padding:14px 16px; margin-bottom:10px;">';
+    html += '<div style="width:36px; text-align:center; flex-shrink:0;">' + rankHtml + '</div>';
+    html += '<div style="width:44px; height:44px; border-radius:50%; background:' + item.color + '; display:flex; align-items:center; justify-content:center; font-size:22px; flex-shrink:0;">' + item.emoji + '</div>';
+    html += '<div style="flex:1; min-width:0;">';
+    html += '<div style="font-size:14px; font-weight:700; color:var(--text-deep); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">' + escapeHtml(item.nickname) + '</div>';
+    html += '<div style="font-size:12px; color:var(--accent); font-weight:600; margin-top:2px;">' + formatDurationHM(item.total) + '</div>';
+    html += '</div>';
+    html += '</div>';
+  });
+  box.innerHTML = html;
+}
+
+/* ============================================================
+   排行榜
+   ============================================================ */
+let lbCurrentPeriod = 'total';
+
+function openLeaderboard() {
+  $('leaderboard-page').classList.add('show');
+  document.body.style.overflow = 'hidden';
+  // 每次打开重置到总榜
+  lbCurrentPeriod = 'total';
+  document.querySelectorAll('#lb-range-tabs .range-tab').forEach(function(b) {
+    b.classList.toggle('active', b.dataset.lb === 'total');
+  });
+  $('leaderboard-body').innerHTML = '<div class="empty-tip">加载中…</div>';
+  loadAndRenderLeaderboard();
+}
+
+function closeLeaderboard() {
+  $('leaderboard-page').classList.remove('show');
+  document.body.style.overflow = '';
+}
+
+// 切换 日/周/月/总 时触发
+document.querySelectorAll('#lb-range-tabs .range-tab').forEach(function(btn) {
+  btn.addEventListener('click', function() {
+    lbCurrentPeriod = btn.dataset.lb;
+    document.querySelectorAll('#lb-range-tabs .range-tab').forEach(function(b) {
+      b.classList.toggle('active', b === btn);
+    });
+    $('leaderboard-body').innerHTML = '<div class="empty-tip">加载中…</div>';
+    loadAndRenderLeaderboard();
+  });
+});
+
+async function loadAndRenderLeaderboard() {
+  // 按周期构造查询
+  let query = supabaseClient.from('study_records').select('user_id, seconds, date');
+  if (lbCurrentPeriod !== 'total') {
+    const range = periodRange(lbCurrentPeriod, getTodayStr());
+    query = query.gte('date', range.start).lte('date', range.end);
+  }
+
+  const { data: records, error } = await query;
+  if (error) {
+    $('leaderboard-body').innerHTML = '<div class="empty-tip">加载失败：' + escapeHtml(error.message) + '</div>';
+    return;
+  }
+
+  // 按 user_id 累加
+  const totals = {};
+  (records || []).forEach(function(r) {
+    if (!totals[r.user_id]) totals[r.user_id] = 0;
+    totals[r.user_id] += (r.seconds || 0);
+  });
+
+  // 拉用户资料
+  const ids = Object.keys(totals);
+  let profileMap = {};
+  if (ids.length > 0) {
+    const { data: profiles } = await supabaseClient
+      .from('profiles')
+      .select('id, nickname, avatar_emoji, avatar_color')
+      .in('id', ids);
+    (profiles || []).forEach(function(p) { profileMap[p.id] = p; });
+  }
+
+  // 合成列表（30 分钟门槛）
+  const MIN_SECONDS = 30 * 60;
+  const list = ids.map(function(id) {
+    const p = profileMap[id] || {};
+    return {
+      userId: id,
+      total: totals[id],
+      nickname: p.nickname || '神秘同学',
+      emoji: p.avatar_emoji || '🍀',
+      color: p.avatar_color || '#52B788'
+    };
+  }).filter(function(x) { return x.total >= MIN_SECONDS; });
+
+  list.sort(function(a, b) { return b.total - a.total; });
+  renderLeaderboardList(list);
+}
+
+function renderLeaderboardList(list) {
+  const box = $('leaderboard-body');
+  const emptyText = {
+    total: '还没有人上榜',
+    daily: '今天还没人上榜',
+    weekly: '本周还没人上榜',
+    monthly: '本月还没人上榜'
+  };
+
+  if (!list.length) {
+    box.innerHTML = '<div class="empty-tip">' + (emptyText[lbCurrentPeriod] || '还没有人上榜') + '<br>学习满 30 分钟就能上榜啦 ☝️</div>';
+    return;
+  }
+
+  let html = '';
+
+  // ---- 前三名领奖台 ----
+  const top3 = list.slice(0, 3);
+  const rest = list.slice(3);
+  const podiumOrder = [];
+  if (top3[1]) podiumOrder.push({ item: top3[1], rank: 2, height: 70 });
+  if (top3[0]) podiumOrder.push({ item: top3[0], rank: 1, height: 95 });
+  if (top3[2]) podiumOrder.push({ item: top3[2], rank: 3, height: 60 });
+
+  html += '<div style="display:flex; align-items:flex-end; justify-content:center; gap:10px; margin-bottom:20px;">';
+  podiumOrder.forEach(function(p) {
+    const it = p.item;
+    html += '<div style="flex:1; max-width:110px; text-align:center;">';
+    html += '<div style="width:48px; height:48px; border-radius:50%; background:' + it.color + '; display:flex; align-items:center; justify-content:center; font-size:24px; margin:0 auto 6px;">' + it.emoji + '</div>';
+    html += '<div style="font-size:12px; font-weight:700; color:var(--text-deep); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; margin-bottom:2px;">' + escapeHtml(it.nickname) + '</div>';
+    html += '<div style="font-size:11px; color:var(--accent); font-weight:600; margin-bottom:6px;">' + formatDurationHM(it.total) + '</div>';
+    html += '<div style="height:' + p.height + 'px; background:linear-gradient(135deg, var(--mint-light), var(--mint-very-light)); border-radius:10px 10px 0 0; display:flex; align-items:center; justify-content:center; font-size:22px;">';
+    if (p.rank === 1) html += '🥇';
+    else if (p.rank === 2) html += '🥈';
+    else html += '🥉';
+    html += '</div>';
+    html += '</div>';
+  });
+  html += '</div>';
+
+  // ---- 4 名往后 ----
+  rest.forEach(function(item, i) {
+    const rank = i + 4;
+    html += '<div class="card" style="display:flex; align-items:center; gap:12px; padding:12px 16px; margin-bottom:8px;">';
+    html += '<div style="width:28px; text-align:center; font-size:13px; color:var(--text-light); font-weight:700;">' + rank + '</div>';
+    html += '<div style="width:36px; height:36px; border-radius:50%; background:' + item.color + '; display:flex; align-items:center; justify-content:center; font-size:18px;">' + item.emoji + '</div>';
+    html += '<div style="flex:1; min-width:0;">';
+    html += '<div style="font-size:13px; font-weight:600; color:var(--text-deep); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">' + escapeHtml(item.nickname) + '</div>';
+    html += '<div style="font-size:11px; color:var(--accent); font-weight:600; margin-top:2px;">' + formatDurationHM(item.total) + '</div>';
+    html += '</div>';
+    html += '</div>';
+  });
+
+  box.innerHTML = html;
+}
+
 function getSubjectHistory(name) {
   const result = [];
   getAllStudyDates().forEach(d => {
