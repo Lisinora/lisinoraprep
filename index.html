@@ -244,6 +244,12 @@
   
   <!-- ============ Tab4: 我的 ============ -->
   <div class="tab-content" id="tab-profile">
+        <!-- 头像 + 昵称 -->
+    <div class="card" style="text-align:center; padding:24px 20px;">
+      <div id="profile-avatar" onclick="openAvatarPicker()" style="width:80px; height:80px; border-radius:50%; background:#52B788; display:flex; align-items:center; justify-content:center; font-size:44px; margin:0 auto 12px; cursor:pointer; box-shadow:0 4px 16px rgba(82,183,136,0.3); transition: transform 0.2s;">🍀</div>
+      <div id="profile-nickname" style="font-size:18px; font-weight:700; color:var(--text-deep);">加载中…</div>
+      <div style="font-size:11px; color:var(--text-light); margin-top:4px;">点头像可以换一个</div>
+    </div>
     <div class="card">
       <div class="card-title">📚 我的科目</div>
       <div id="subject-list"></div>
@@ -330,6 +336,17 @@
     <div class="modal-actions">
       <button class="btn-cancel" onclick="closeSubjectModal()">取消</button>
       <button class="btn-confirm" onclick="saveSubjectModal()">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- 头像选择模态框 -->
+<div class="modal-mask" id="avatar-modal">
+  <div class="modal-box">
+    <div class="modal-title">选择一个头像</div>
+    <div id="avatar-grid" style="display:grid; grid-template-columns:repeat(5, 1fr); gap:12px; margin-top:10px;"></div>
+    <div class="modal-actions" style="margin-top:20px;">
+      <button class="btn-cancel" onclick="closeAvatarPicker()">取消</button>
     </div>
   </div>
 </div>

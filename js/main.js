@@ -85,6 +85,7 @@ supabaseClient.auth.onAuthStateChange((event, session) => {
     console.log('已登录:', session.user.email);
    updateAccountEmail(session.user);
     trySyncOnce();
+        loadProfile();
   } else {
     overlay.style.display = 'flex';
     updateAccountEmail(null);
@@ -165,6 +166,135 @@ function updateAccountEmail(user) {
   let text = displayName || user.email || '未登录';
   if (text.length > 20) text = text.slice(0, 18) + '…';
   el.textContent = text;
+}
+
+/* ============================================================
+   个人资料（头像 + 昵称）
+   ============================================================ */
+// 头像数据存在内存里，避免频繁读库
+let currentProfile = { emoji: '🍀', color: '#52B788', nickname: '' };
+// 20 个默认头像组合（emoji + 背景色）
+const AVATAR_PRESETS = [
+  { emoji: '🍀', color: '#52B788' },
+  { emoji: '🌸', color: '#F4A6B8' },
+  { emoji: '🌻', color: '#F2C14E' },
+  { emoji: '🌙', color: '#7B9FE0' },
+  { emoji: '⭐', color: '#9B8EC4' },
+  { emoji: '🌈', color: '#E8A87C' },
+  { emoji: '🐱', color: '#E8A87C' },
+  { emoji: '🐶', color: '#C38D9E' },
+  { emoji: '🐰', color: '#F4A6B8' },
+  { emoji: '🐼', color: '#B5EAD7' },
+  { emoji: '🦊', color: '#E8A87C' },
+  { emoji: '🐳', color: '#7B9FE0' },
+  { emoji: '🦋', color: '#9B8EC4' },
+  { emoji: '🌿', color: '#81B29A' },
+  { emoji: '🌊', color: '#6C9BD2' },
+  { emoji: '🔥', color: '#E07A5F' },
+  { emoji: '💎', color: '#6C9BD2' },
+  { emoji: '🎀', color: '#F4A6B8' },
+  { emoji: '🥑', color: '#81B29A' },
+  { emoji: '🍑', color: '#E8A87C' }
+];
+
+// 打开头像选择器
+function openAvatarPicker() {
+  const grid = $('avatar-grid');
+  if (!grid) return;
+  grid.innerHTML = AVATAR_PRESETS.map(function(p, i) {
+    const selected = (p.emoji === currentProfile.emoji && p.color === currentProfile.color);
+    const border = selected ? '3px solid #2D6A4F' : '3px solid transparent';
+    return '<div onclick="pickAvatar(' + i + ')" style="width:100%; aspect-ratio:1; border-radius:50%; background:' + p.color + '; display:flex; align-items:center; justify-content:center; font-size:28px; cursor:pointer; border:' + border + '; transition: transform 0.15s; box-sizing:border-box;">' + p.emoji + '</div>';
+  }).join('');
+  $('avatar-modal').classList.add('show');
+}
+
+// 关闭头像选择器
+function closeAvatarPicker() {
+  $('avatar-modal').classList.remove('show');
+}
+
+// 选中一个头像
+async function pickAvatar(index) {
+  const preset = AVATAR_PRESETS[index];
+  if (!preset) return;
+  currentProfile.emoji = preset.emoji;
+  currentProfile.color = preset.color;
+  renderProfileHeader();
+  closeAvatarPicker();
+  showToast('正在保存…');
+
+  const { data: { user } } = await supabaseClient.auth.getUser();
+  if (!user) return;
+  const { error } = await supabaseClient
+    .from('profiles')
+    .update({ avatar_emoji: preset.emoji, avatar_color: preset.color, updated_at: new Date().toISOString() })
+    .eq('id', user.id);
+  if (error) {
+    showToast('保存失败：' + error.message);
+  } else {
+    showToast('✅ 头像已更新');
+  }
+}
+
+// 点空白关闭
+document.addEventListener('DOMContentLoaded', function() {
+  const mask = $('avatar-modal');
+  if (mask) {
+    mask.addEventListener('click', function(e) {
+      if (e.target === mask) closeAvatarPicker();
+    });
+  }
+});
+
+// 把当前 profile 渲染到"我的"页顶部
+function renderProfileHeader() {
+  const avatarEl = $('profile-avatar');
+  const nameEl = $('profile-nickname');
+  if (avatarEl) {
+    avatarEl.textContent = currentProfile.emoji;
+    avatarEl.style.background = currentProfile.color;
+  }
+  if (nameEl) {
+    nameEl.textContent = currentProfile.nickname || '未登录';
+  }
+}
+
+// 登录后调用：从云端读 profile，没有就用默认值创建一个
+async function loadProfile() {
+  const { data: { user } } = await supabaseClient.auth.getUser();
+  if (!user) return;
+
+  const { data, error } = await supabaseClient
+    .from('profiles')
+    .select('*')
+    .eq('id', user.id)
+    .maybeSingle();
+
+  if (error) {
+    console.log('读取 profile 失败:', error.message);
+    return;
+  }
+
+  if (data) {
+    // 已有记录：用云端值
+    currentProfile.emoji = data.avatar_emoji || '🍀';
+    currentProfile.color = data.avatar_color || '#52B788';
+    currentProfile.nickname = data.nickname || (user.user_metadata && user.user_metadata.display_name) || user.email;
+  } else {
+    // 没记录：默认值 + 昵称用注册时填的名字
+    const nickname = (user.user_metadata && user.user_metadata.display_name) || user.email || '';
+    currentProfile.nickname = nickname;
+    // 顺便在云端建一条
+    await supabaseClient.from('profiles').insert({
+      id: user.id,
+      email: user.email,
+      nickname: nickname,
+      avatar_emoji: currentProfile.emoji,
+      avatar_color: currentProfile.color
+    });
+  }
+  renderProfileHeader();
 }
 
 async function handleLogout() {
