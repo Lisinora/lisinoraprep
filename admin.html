@@ -322,6 +322,7 @@ async function rejectAch(id) {
 /* ============================================================
    数据异常（单日 ≥ 12 小时）
    ============================================================ */
+
 async function loadAnomalies() {
   const box = $('anomaly-list');
   if (!box) return;
@@ -329,30 +330,41 @@ async function loadAnomalies() {
 
   const { data: records, error } = await supabaseClient
     .from('study_records')
-    .select('user_id, date, seconds');
+    .select('id, user_id, date, seconds, anomaly_status');
   if (error) {
     box.innerHTML = '<div class="empty-tip">加载失败：' + error.message + '</div>';
     return;
   }
 
-  // 按 user_id + date 聚合成一天的总秒数
   const dayMap = {};
   (records || []).forEach(function(r) {
     const key = r.user_id + '|' + r.date;
-    if (!dayMap[key]) dayMap[key] = { user_id: r.user_id, date: r.date, total: 0 };
+    if (!dayMap[key]) {
+      dayMap[key] = {
+        user_id: r.user_id, date: r.date, total: 0,
+        ids: [], status: 'pending'
+      };
+    }
     dayMap[key].total += (r.seconds || 0);
+    if (r.id) dayMap[key].ids.push(r.id);
+    // 只要有一条不是 pending，整个日期就算已处理
+    if (r.anomaly_status === 'resolved' || r.anomaly_status === 'ignored') {
+      dayMap[key].status = r.anomaly_status;
+    }
   });
 
-  // 筛出 ≥ 12 小时的
   const WARN_SEC = 12 * 3600;
-  const anomalies = Object.keys(dayMap)
+  const all = Object.keys(dayMap)
     .map(function(k) { return dayMap[k]; })
-    .filter(function(x) { return x.total >= WARN_SEC; })
+    .filter(function(x) { return x.total >= WARN_SEC; });
+
+  const pendingList = all.filter(function(x) { return x.status === 'pending'; })
+    .sort(function(a, b) { return b.total - a.total; });
+  const handledList = all.filter(function(x) { return x.status !== 'pending'; })
     .sort(function(a, b) { return b.total - a.total; });
 
-  // 拉用户资料
   const ids = [];
-  anomalies.forEach(function(a) {
+  all.forEach(function(a) {
     if (ids.indexOf(a.user_id) < 0) ids.push(a.user_id);
   });
   let profileMap = {};
@@ -364,30 +376,74 @@ async function loadAnomalies() {
     (profiles || []).forEach(function(p) { profileMap[p.id] = p; });
   }
 
-  $('anomaly-count').textContent = anomalies.length ? anomalies.length + ' 条' : '';
+  $('anomaly-count').textContent = pendingList.length ? pendingList.length + ' 条待处理' : '';
 
-  if (!anomalies.length) {
+  if (!pendingList.length && !handledList.length) {
     box.innerHTML = '<div class="empty-tip">✅ 没有异常记录</div>';
     return;
   }
 
   let html = '';
-  anomalies.forEach(function(a) {
-    const p = profileMap[a.user_id] || {};
-    const emoji = p.avatar_emoji || '🍀';
-    const color = p.avatar_color || '#52B788';
-    const nickname = p.nickname || '(无名)';
-    const hours = (a.total / 3600).toFixed(1);
 
-    html += '<div style="display:flex; align-items:center; gap:12px; padding:12px 14px; margin-bottom:8px; background:#FBE9E9; border:1px solid #E88A8A; border-radius:12px;">';
-    html += '<div style="width:36px; height:36px; border-radius:50%; background:' + color + '; display:flex; align-items:center; justify-content:center; font-size:18px; flex-shrink:0;">' + emoji + '</div>';
-    html += '<div style="flex:1; min-width:0;">';
-    html += '<div style="font-size:13px; font-weight:700; color:var(--text-deep);">' + escapeHtml(nickname) + '</div>';
-    html += '<div style="font-size:11px; color:var(--text); margin-top:2px;">' + escapeHtml(a.date) + ' · <span style="color:#E88A8A; font-weight:700;">' + hours + ' 小时</span></div>';
-    html += '</div>';
-    html += '</div>';
-  });
+  if (pendingList.length) {
+    html += '<div style="font-size:13px; font-weight:700; color:var(--text-deep); margin:8px 0 10px;">⏳ 待处理（' + pendingList.length + '）</div>';
+    pendingList.forEach(function(a) {
+      html += renderAnomalyCard(a, profileMap[a.user_id], true);
+    });
+  } else {
+    html += '<div style="font-size:13px; color:var(--text-light); margin:8px 0 10px;">✅ 没有待处理的异常</div>';
+  }
+
+  if (handledList.length) {
+    html += '<div style="font-size:13px; font-weight:700; color:var(--text-deep); margin:18px 0 10px;">📜 已处理（' + handledList.length + '）</div>';
+    handledList.forEach(function(a) {
+      html += renderAnomalyCard(a, profileMap[a.user_id], false);
+    });
+  }
+
   box.innerHTML = html;
+}
+
+function renderAnomalyCard(a, profile, canHandle) {
+  const p = profile || {};
+  const emoji = p.avatar_emoji || '🍀';
+  const color = p.avatar_color || '#52B788';
+  const nickname = p.nickname || '(无名)';
+  const hours = (a.total / 3600).toFixed(1);
+  const statusLabel = a.status === 'resolved' ? '✓ 已解决' : (a.status === 'ignored' ? '⊘ 已忽略' : '待处理');
+  const statusColor = a.status === 'pending' ? '#B8860B' : '#7A9A8C';
+  const bgColor = canHandle ? '#FBE9E9' : '#F5F7F6';
+  const borderColor = canHandle ? '#E88A8A' : '#D0DDD7';
+
+  let html = '<div style="display:flex; align-items:center; gap:12px; padding:12px 14px; margin-bottom:10px; background:' + bgColor + '; border:1px solid ' + borderColor + '; border-radius:12px; flex-wrap:wrap;">';
+  html += '<div style="width:36px; height:36px; border-radius:50%; background:' + color + '; display:flex; align-items:center; justify-content:center; font-size:18px; flex-shrink:0;">' + emoji + '</div>';
+  html += '<div style="flex:1; min-width:120px;">';
+  html += '<div style="font-size:13px; font-weight:700; color:var(--text-deep);">' + escapeHtml(nickname) + ' <span style="font-size:11px; color:' + statusColor + '; font-weight:500;">' + statusLabel + '</span></div>';
+  html += '<div style="font-size:11px; color:var(--text); margin-top:2px;">' + escapeHtml(a.date) + ' · <span style="color:#E88A8A; font-weight:700;">' + hours + ' 小时</span></div>';
+  html += '</div>';
+  if (canHandle) {
+    html += '<div style="display:flex; gap:8px; width:100%;">';
+    html += '<button onclick="handleAnomaly(\'' + a.user_id + '\',\'' + a.date + '\',\'resolved\')" style="flex:1; padding:8px; background:#52B788; color:#fff; border:none; border-radius:10px; font-size:12px; font-weight:700; cursor:pointer; font-family:inherit;">✓ 已解决</button>';
+    html += '<button onclick="handleAnomaly(\'' + a.user_id + '\',\'' + a.date + '\',\'ignored\')" style="flex:1; padding:8px; background:#E8E8E8; color:#666; border:none; border-radius:10px; font-size:12px; font-weight:700; cursor:pointer; font-family:inherit;">⊘ 忽略</button>';
+    html += '</div>';
+  } else {
+    html += '<button onclick="handleAnomaly(\'' + a.user_id + '\',\'' + a.date + '\',\'pending\')" style="padding:6px 12px; background:#fff; color:#7A9A8C; border:1px solid #D0DDD7; border-radius:8px; font-size:11px; font-weight:700; cursor:pointer; font-family:inherit;">恢复为待处理</button>';
+  }
+  html += '</div>';
+  return html;
+}
+
+async function handleAnomaly(userId, date, newStatus) {
+  const label = newStatus === 'resolved' ? '标记为已解决' : (newStatus === 'ignored' ? '忽略' : '恢复为待处理');
+  if (!confirm('确定要' + label + '这条异常吗？')) return;
+
+  const { error } = await supabaseClient
+    .from('study_records')
+    .update({ anomaly_status: newStatus })
+    .eq('user_id', userId)
+    .eq('date', date);
+  if (error) { alert('操作失败：' + error.message); return; }
+  loadAnomalies();
 }
 
 /* ============================================================
