@@ -3975,7 +3975,38 @@ window.addEventListener('appinstalled', () => {
 <script>
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('./service-worker.js').catch(() => {});
+    navigator.serviceWorker.register('./service-worker.js').then(reg => {
+      // 每小时检查一次更新（App 打开着的时候）
+      setInterval(() => reg.update(), 60 * 60 * 1000);
+
+      // 检测到新 SW 时，自动重新加载
+      reg.addEventListener('updatefound', () => {
+        const newWorker = reg.installing;
+        if (!newWorker) return;
+        newWorker.addEventListener('statechange', () => {
+          if (newWorker.state === 'activated' && navigator.serviceWorker.controller) {
+            console.log('🔄 检测到新版本，正在刷新...');
+            window.location.reload();
+          }
+        });
+      });
+    }).catch(() => {});
+
+    // 页面每次获得焦点时，也检查一次更新（切回 App 时触发）
+    let refreshing = false;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (refreshing) return;
+      refreshing = true;
+      window.location.reload();
+    });
+
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') {
+        navigator.serviceWorker.getRegistration().then(reg => {
+          if (reg) reg.update();
+        });
+      }
+    });
   });
 }
 </script>
