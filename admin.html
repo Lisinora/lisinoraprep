@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LisinoraPrep · 后台</title>
+<link rel="stylesheet" href="./css/style.css">
+<script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+</head>
+<body>
+
+<!-- 登录遮罩 -->
+<div id="admin-login" style="position:fixed; inset:0; background:linear-gradient(135deg, #B5EAD7, #E8F8F5); z-index:9999; display:flex; align-items:center; justify-content:center; padding:20px;">
+  <div style="background:rgba(255,255,255,0.85); backdrop-filter:blur(20px); border-radius:24px; padding:30px; width:100%; max-width:380px; box-shadow:0 12px 48px rgba(82,183,136,0.3); text-align:center;">
+    <h2 style="color:#2D6A4F; margin-bottom:8px;">🔐 管理后台</h2>
+    <p style="color:#7A9A8C; font-size:13px; margin-bottom:24px;">LisinoraPrep · 姐姐专用</p>
+    <input type="email" id="admin-email" placeholder="管理员邮箱" style="width:100%; padding:12px; border:2px solid #B5EAD7; border-radius:12px; margin-bottom:12px; font-size:14px; box-sizing:border-box;">
+    <input type="password" id="admin-password" placeholder="密码" style="width:100%; padding:12px; border:2px solid #B5EAD7; border-radius:12px; margin-bottom:20px; font-size:14px; box-sizing:border-box;">
+    <button onclick="adminLogin()" style="width:100%; padding:14px; background:#52B788; color:#fff; border:none; border-radius:12px; font-size:15px; font-weight:700; cursor:pointer;">登录</button>
+    <div id="admin-login-error" style="color:#E88A8A; font-size:12px; margin-top:12px; min-height:16px;"></div>
+  </div>
+</div>
+
+<!-- 主界面 -->
+<div id="admin-app" class="app" style="display:none;">
+  <div class="header">
+    <h1>🔐 管理后台</h1>
+    <div class="subtitle">LisinoraPrep · 姐姐专用</div>
+  </div>
+
+  <div style="display:flex; gap:8px; margin-bottom:16px; flex-wrap:wrap;">
+    <button class="save-btn small" style="flex:1; margin-top:0;" onclick="showPanel('users')">👥 用户总览</button>
+    <button class="save-btn small ghost" style="flex:1; margin-top:0;" onclick="showPanel('achievements')">🏅 成就审核</button>
+    <button class="save-btn small ghost" style="flex:1; margin-top:0;" onclick="showPanel('anomalies')">⚠️ 数据异常</button>
+  </div>
+
+  <div id="panel-users" class="card"><div class="empty-tip">用户总览（4.2 实现）</div></div>
+  <div id="panel-achievements" class="card" style="display:none;"><div class="empty-tip">成就审核（4.3 实现）</div></div>
+  <div id="panel-anomalies" class="card" style="display:none;"><div class="empty-tip">数据异常（4.4 实现）</div></div>
+
+  <button class="save-btn small ghost" style="margin-top:20px; background:#FBE9E9; color:var(--danger);" onclick="adminLogout()">🚪 退出后台</button>
+</div>
+
+<script>
+const SUPABASE_URL = 'https://lbewnabiomoxzufbncfy.supabase.co';
+const SUPABASE_KEY = 'sb_publishable_mKDoj840VIINo5w1moFg0A__JzMQhph';
+const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+const $ = id => document.getElementById(id);
+
+async function adminLogin() {
+  const email = $('admin-email').value.trim();
+  const password = $('admin-password').value;
+  const err = $('admin-login-error');
+  err.textContent = '';
+  if (!email || !password) { err.textContent = '请填写邮箱和密码'; return; }
+  const { error } = await supabaseClient.auth.signInWithPassword({ email, password });
+  if (error) { err.textContent = error.message; return; }
+  await checkAdmin();
+}
+
+async function checkAdmin() {
+  const { data: { user } } = await supabaseClient.auth.getUser();
+  if (!user) { showLogin(); return; }
+  const { data } = await supabaseClient.from('profiles').select('role').eq('id', user.id).maybeSingle();
+  if (!data || data.role !== 'admin') {
+    await supabaseClient.auth.signOut();
+    showLogin();
+    $('admin-login-error').textContent = '你不是管理员，无法访问';
+    return;
+  }
+  $('admin-login').style.display = 'none';
+  $('admin-app').style.display = '';
+}
+
+function showLogin() {
+  $('admin-login').style.display = 'flex';
+  $('admin-app').style.display = 'none';
+}
+
+async function adminLogout() {
+  await supabaseClient.auth.signOut();
+  showLogin();
+}
+
+function showPanel(name) {
+  ['users','achievements','anomalies'].forEach(n => {
+    $('panel-' + n).style.display = (n === name) ? '' : 'none';
+  });
+}
+
+// 只在“退出登录”时切回登录页，其他情况不抢跑
+supabaseClient.auth.onAuthStateChange((event, session) => {
+  if (event === 'SIGNED_OUT') showLogin();
+});
+
+(async function() {
+  const { data: { user } } = await supabaseClient.auth.getUser();
+  if (user) {
+    await checkAdmin();
+  } else {
+    showLogin();
+  }
+})();
+</script>
+</body>
+</html>
