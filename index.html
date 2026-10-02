@@ -7,6 +7,7 @@
 <meta name="theme-color" content="#52B788">
 <link rel="apple-touch-icon" href="./icon-192.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="LisinoraPrep">
 <title>LisinoraPrep</title>
@@ -680,9 +681,98 @@ body {
   .page-overlay { background-color: var(--bg); }
 }
 
+/* ========== 成就墙 · 折叠 + 分类 ========== */
+.ach-filter-row {
+  display: flex;
+  gap: 5px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+.ach-filter {
+  padding: 5px 11px;
+  border: none;
+  border-radius: 999px;
+  background: var(--mint-very-light);
+  color: var(--text-light);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+  transition: all 0.2s;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.ach-filter.active {
+  background: var(--mint);
+  color: var(--white);
+}
+.ach-filter-count {
+  font-size: 10px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.5);
+  color: inherit;
+  min-width: 14px;
+  text-align: center;
+}
+.ach-filter.active .ach-filter-count {
+  background: rgba(255, 255, 255, 0.28);
+  color: var(--white);
+}
+.ach-filter-count:empty { display: none; }
+
+/* 紧凑版成就卡（覆盖旧规则） */
+.ach-item {
+  padding: 10px 12px;
+  margin-bottom: 6px;
+  border-radius: var(--radius-sm);
+}
+.ach-head { gap: 7px; margin-bottom: 4px; }
+.ach-medal { font-size: 16px; }
+.ach-title { font-size: 13px; }
+.ach-reward { font-size: 11px; padding: 2px 8px; }
+.ach-desc { font-size: 11px; margin-bottom: 6px; line-height: 1.5; }
+.ach-meta { font-size: 9px; gap: 6px; }
+.ach-id { padding: 1px 6px; font-size: 9px; }
+.ach-status { font-size: 9px; padding: 1px 6px; }
+
+/* 收起状态下的小图标 */
+#ach-toggle-icon {
+  display: inline-block;
+  transition: transform 0.2s;
+  font-size: 10px;
+  color: var(--text-light);
+}
+.ach-wall-open #ach-toggle-icon {
+  transform: rotate(90deg);
+}
+
 </style>
+
+<script src="https://unpkg.com/@supabase/supabase-js@2"></script>
 </head>
 <body>
+
+  <!-- 登录遮罩层 -->
+<div id="auth-overlay" style="position:fixed; inset:0; background:linear-gradient(135deg, #B5EAD7, #E8F8F5); z-index:9999; display:flex; align-items:center; justify-content:center; padding:20px;">
+  <div style="background:rgba(255,255,255,0.85); backdrop-filter:blur(20px); border-radius:24px; padding:30px; width:100%; max-width:380px; box-shadow:0 12px 48px rgba(82,183,136,0.3); text-align:center;">
+    <h2 style="color:#2D6A4F; margin-bottom:8px;">🌿 LisinoraPrep</h2>
+    <p style="color:#7A9A8C; font-size:13px; margin-bottom:24px;" id="auth-subtitle">登录你的备考助手</p>
+    
+    <input type="email" id="auth-email" placeholder="邮箱" style="width:100%; padding:12px; border:2px solid #B5EAD7; border-radius:12px; margin-bottom:12px; font-size:14px;">
+    <input type="password" id="auth-password" placeholder="密码（至少6位）" style="width:100%; padding:12px; border:2px solid #B5EAD7; border-radius:12px; margin-bottom:20px; font-size:14px;">
+    
+    <button id="auth-btn" onclick="handleAuth()" style="width:100%; padding:14px; background:#52B788; color:#fff; border:none; border-radius:12px; font-size:15px; font-weight:700; cursor:pointer; margin-bottom:12px;">登录</button>
+    
+    <div style="font-size:13px; color:#7A9A8C;">
+      <span id="auth-toggle-text">还没有账号？</span>
+      <a href="javascript:void(0)" onclick="toggleAuthMode()" id="auth-toggle-btn" style="color:#52B788; font-weight:700; text-decoration:none;">立即注册</a>
+    </div>
+    
+    <div id="auth-error" style="color:#E88A8A; font-size:12px; margin-top:12px; display:none;"></div>
+  </div>
+</div>
 
 <div class="app">
   <!-- 顶部 -->
@@ -846,10 +936,24 @@ body {
 
     <!-- 成就墙 -->
     <div class="card">
-      <div class="card-title">🏅 成就墙 <span class="card-sub" id="ach-count"></span></div>
-      <div id="achievement-list"></div>
-      <div class="manual-hint" style="margin-top:12px; line-height:1.7;">
-        成就达成后自动生成唯一编号。具体奖励由姐姐审核发放，同一编号不可重复兑换。
+      <div class="card-title" style="cursor:pointer; user-select:none;" onclick="toggleAchWall()">
+        <span id="ach-toggle-icon">▶</span>
+        <span>🏅 成就墙</span>
+        <span class="card-sub" id="ach-count"></span>
+      </div>
+      <div id="ach-wall-body" style="display:none;">
+        <div class="ach-filter-row">
+          <button class="ach-filter active" data-filter="all"><span class="ach-filter-label">全部</span><span class="ach-filter-count"></span></button>
+          <button class="ach-filter" data-filter="daily"><span class="ach-filter-label">单日</span><span class="ach-filter-count"></span></button>
+          <button class="ach-filter" data-filter="weekly"><span class="ach-filter-label">单周</span><span class="ach-filter-count"></span></button>
+          <button class="ach-filter" data-filter="monthly"><span class="ach-filter-label">单月</span><span class="ach-filter-count"></span></button>
+          <button class="ach-filter" data-filter="total"><span class="ach-filter-label">累计</span><span class="ach-filter-count"></span></button>
+          <button class="ach-filter" data-filter="exam"><span class="ach-filter-label">考试</span><span class="ach-filter-count"></span></button>
+        </div>
+        <div id="achievement-list"></div>
+        <div class="manual-hint" style="margin-top:12px; line-height:1.7;">
+          成就达成后自动生成唯一编号。审核获得成就，同一编号不可重复兑换。
+        </div>
       </div>
     </div>
 
@@ -897,6 +1001,13 @@ body {
       <input type="file" id="import-file" accept=".json,application/json" style="display:none" onchange="importData(event)">
       <button class="save-btn small ghost" style="margin-top:10px; background:#FBE9E9; color:var(--danger);" onclick="clearAllData()">🗑️ 清除所有数据</button>
       <div class="manual-hint">清除操作不可恢复，建议先导出备份。</div>
+    </div>
+        <div class="card">
+      <div class="card-title">👤 我的账户</div>
+      <div style="font-size:13px; color:var(--text); line-height:1.9; margin-bottom:14px;">
+        当前登录：<span id="account-email" style="color:var(--accent); font-weight:600;">加载中…</span>
+      </div>
+      <button class="save-btn small ghost" style="background:#FBE9E9; color:var(--danger); margin-top:0;" onclick="handleLogout()">🚪 退出登录</button>
     </div>
   </div>
 
@@ -993,6 +1104,333 @@ body {
 </div>
 
 <script>
+/* ============================================================
+   Supabase 初始化
+   ============================================================ */
+const SUPABASE_URL = 'https://lbewnabiomoxzufbncfy.supabase.co';
+const SUPABASE_KEY = 'sb_publishable_mKDoj840VIINo5w1moFg0A__JzMQhph';
+
+const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+/* ============================================================
+   登录 / 注册逻辑
+   ============================================================ */
+let isLoginMode = true;
+
+function toggleAuthMode() {
+  isLoginMode = !isLoginMode;
+  document.getElementById('auth-subtitle').textContent = isLoginMode ? '登录你的备考助手' : '注册一个新账号';
+  document.getElementById('auth-btn').textContent = isLoginMode ? '登录' : '注册';
+  document.getElementById('auth-toggle-text').textContent = isLoginMode ? '还没有账号？' : '已经有账号了？';
+  document.getElementById('auth-toggle-btn').textContent = isLoginMode ? '立即注册' : '去登录';
+}
+
+async function handleAuth() {
+  const email = document.getElementById('auth-email').value.trim();
+  const password = document.getElementById('auth-password').value;
+  const errorDiv = document.getElementById('auth-error');
+  const btn = document.getElementById('auth-btn');
+  
+  if (!email || !password) {
+    errorDiv.textContent = '请填写邮箱和密码';
+    errorDiv.style.display = 'block';
+    return;
+  }
+  
+  errorDiv.style.display = 'none';
+  btn.textContent = '处理中...';
+  btn.disabled = true;
+  
+  try {
+    if (isLoginMode) {
+      const { error } = await supabaseClient.auth.signInWithPassword({ email, password });
+      if (error) throw error;
+    } else {
+      const { error } = await supabaseClient.auth.signUp({ email, password });
+      if (error) throw error;
+      alert('注册成功！如果开启了邮箱验证，请去邮箱点确认链接再回来登录。');
+      toggleAuthMode();
+    }
+  } catch (err) {
+    errorDiv.textContent = err.message || '操作失败';
+    errorDiv.style.display = 'block';
+  } finally {
+    btn.textContent = isLoginMode ? '登录' : '注册';
+    btn.disabled = false;
+  }
+}
+
+// 自动检查登录状态（页面刷新时触发）
+supabaseClient.auth.onAuthStateChange((event, session) => {
+  const overlay = document.getElementById('auth-overlay');
+  if (session) {
+    overlay.style.display = 'none';
+    console.log('已登录:', session.user.email);
+    updateAccountEmail(session.user.email);
+    trySyncOnce();
+  } else {
+    overlay.style.display = 'flex';
+    updateAccountEmail(null);
+  }
+});
+
+/* ============================================================
+   登录时同步（只做一次）
+   ============================================================ */
+let hasSyncedThisSession = sessionStorage.getItem('cloud_synced') === '1';
+
+async function trySyncOnce() {
+  if (hasSyncedThisSession) return;
+  hasSyncedThisSession = true;
+  sessionStorage.setItem('cloud_synced', '1');
+
+  const { data: { user } } = await supabaseClient.auth.getUser();
+  if (!user) return;
+
+  // 看云端有没有数据
+  const { count } = await supabaseClient
+    .from('subjects')
+    .select('*', { count: 'exact', head: true })
+    .eq('user_id', user.id);
+  const cloudHasData = (count && count > 0);
+
+  // 看本地有没有数据
+  const localHasData =
+    localStorage.getItem('subjects_list') ||
+    localStorage.getItem('exams_list') ||
+    Object.keys(localStorage).some(k => k.startsWith('study_') || k.startsWith('diary_'));
+
+  if (!cloudHasData && localHasData) {
+    console.log('☁️ 云端为空 → 上传本地数据');
+    await CloudSync.pushEverything();
+    showToast('☁️ 数据已同步到云端');
+  } else if (cloudHasData) {
+    console.log('☁️ 云端有数据 → 拉取到本地');
+    await CloudSync.pullAll();
+    showToast('☁️ 已从云端恢复数据');
+    setTimeout(() => location.reload(), 800);
+  } else {
+    console.log('☁️ 云端和本地都是空的，无需同步');
+  }
+}
+
+/* ============================================================
+   账户信息 + 退出登录
+   ============================================================ */
+function updateAccountEmail(email) {
+  const el = document.getElementById('account-email');
+  if (el) el.textContent = email || '未登录';
+}
+
+async function handleLogout() {
+  if (!confirm('确定要退出登录吗？')) return;
+  const { error } = await supabaseClient.auth.signOut();
+  if (error) {
+    alert('退出失败：' + error.message);
+    return;
+  }
+    sessionStorage.removeItem('cloud_synced');
+  location.reload();
+}
+
+/* ============================================================
+   云端同步 · CloudSync
+   ============================================================ */
+const CloudSync = {
+
+  // 从云端拉所有数据覆盖到本地
+  async pullAll() {
+    const { data: { user } } = await supabaseClient.auth.getUser();
+    if (!user) return;
+
+    const { data: subjects } = await supabaseClient.from('subjects').select('*').eq('user_id', user.id);
+    if (subjects) {
+      localStorage.setItem('subjects_list', JSON.stringify(
+        subjects.map(s => ({ id: s.id, name: s.name, color: s.color }))
+      ));
+    }
+
+    const { data: exams } = await supabaseClient.from('exams').select('*').eq('user_id', user.id);
+    if (exams) {
+      localStorage.setItem('exams_list', JSON.stringify(
+        exams.map(e => ({ id: e.id, name: e.name, date: e.date, color: e.color, events: e.events || [] }))
+      ));
+    }
+
+    const { data: diaries } = await supabaseClient.from('diaries').select('*').eq('user_id', user.id);
+    if (diaries) {
+      Object.keys(localStorage).filter(k => k.startsWith('diary_')).forEach(k => localStorage.removeItem(k));
+      diaries.forEach(d => {
+        localStorage.setItem('diary_' + d.date, JSON.stringify({ mood: d.mood, content: d.content }));
+      });
+    }
+
+    const { data: records } = await supabaseClient.from('study_records').select('*').eq('user_id', user.id);
+    if (records) {
+      Object.keys(localStorage).filter(k => k.startsWith('study_')).forEach(k => localStorage.removeItem(k));
+      const byDate = {};
+      records.forEach(r => {
+        if (!byDate[r.date]) byDate[r.date] = { unassigned: 0, subjects: {} };
+        if (r.subject_name === '__unassigned__') {
+          byDate[r.date].unassigned = (byDate[r.date].unassigned || 0) + (r.seconds || 0);
+        } else {
+          byDate[r.date].subjects[r.subject_name] = {
+            seconds: r.seconds || 0,
+            logs: Array.isArray(r.logs) ? r.logs : []
+          };
+        }
+      });
+      Object.keys(byDate).forEach(d => {
+        localStorage.setItem('study_' + d, JSON.stringify(byDate[d]));
+      });
+    }
+
+    const { data: achs } = await supabaseClient.from('achievements').select('*').eq('user_id', user.id);
+    if (achs) {
+      localStorage.setItem('achievements_list', JSON.stringify(
+        achs.map(a => ({
+          id: a.id, type: a.type, periodKey: a.period_key,
+          title: a.title, desc: a.description, reward: a.reward,
+          earnedDate: a.earned_date,
+          earnedAt: a.earned_at ? new Date(a.earned_at).getTime() : Date.now(),
+          status: a.status
+        }))
+      ));
+    }
+  },
+
+    // 推送科目到云端
+  async pushSubjects() {
+    const { data: { user } } = await supabaseClient.auth.getUser();
+    if (!user) return 'no user';
+    const list = JSON.parse(localStorage.getItem('subjects_list') || '[]');
+    const del = await supabaseClient.from('subjects').delete().eq('user_id', user.id);
+    if (del.error) return 'delete error: ' + del.error.message;
+    if (list.length) {
+      const ins = await supabaseClient.from('subjects').insert(
+        list.map(s => ({ id: s.id, user_id: user.id, name: s.name, color: s.color }))
+      );
+      if (ins.error) return 'insert error: ' + ins.error.message;
+      return 'ok, ' + list.length + ' rows';
+    }
+    return 'ok, empty';
+  },
+
+    // 推送考试到云端
+  async pushExams() {
+    const { data: { user } } = await supabaseClient.auth.getUser();
+    if (!user) return 'no user';
+    const list = JSON.parse(localStorage.getItem('exams_list') || '[]');
+    const del = await supabaseClient.from('exams').delete().eq('user_id', user.id);
+    if (del.error) return 'delete error: ' + del.error.message;
+    if (list.length) {
+      const ins = await supabaseClient.from('exams').insert(
+        list.map(e => ({ id: e.id, user_id: user.id, name: e.name, date: e.date, color: e.color, events: e.events || [] }))
+      );
+      if (ins.error) return 'insert error: ' + ins.error.message;
+      return 'ok, ' + list.length + ' rows';
+    }
+    return 'ok, empty';
+  },
+
+  // 推送某天日记到云端
+  async pushDiary(dateStr) {
+    const { data: { user } } = await supabaseClient.auth.getUser();
+    if (!user) return;
+    const raw = localStorage.getItem('diary_' + dateStr);
+    if (!raw) {
+      await supabaseClient.from('diaries').delete().eq('user_id', user.id).eq('date', dateStr);
+      return;
+    }
+    const d = JSON.parse(raw);
+    await supabaseClient.from('diaries').upsert({
+      user_id: user.id, date: dateStr,
+      mood: d.mood || '', content: d.content || '',
+      updated_at: new Date().toISOString()
+    }, { onConflict: 'user_id,date' });
+  },
+
+  // 推送某天学习记录到云端
+  async pushStudyDay(dateStr) {
+    const { data: { user } } = await supabaseClient.auth.getUser();
+    if (!user) return;
+    const day = JSON.parse(localStorage.getItem('study_' + dateStr) || '{"unassigned":0,"subjects":{}}');
+    await supabaseClient.from('study_records').delete().eq('user_id', user.id).eq('date', dateStr);
+    const rows = [];
+    Object.keys(day.subjects || {}).forEach(name => {
+      rows.push({
+        user_id: user.id, date: dateStr, subject_name: name,
+        seconds: day.subjects[name].seconds || 0,
+        logs: day.subjects[name].logs || []
+      });
+    });
+    if (day.unassigned > 0) {
+      rows.push({
+        user_id: user.id, date: dateStr,
+        subject_name: '__unassigned__', seconds: day.unassigned, logs: []
+      });
+    }
+    if (rows.length) {
+      await supabaseClient.from('study_records').insert(rows);
+    }
+  },
+
+  // 推送成就到云端
+  async pushAchievements() {
+    const { data: { user } } = await supabaseClient.auth.getUser();
+    if (!user) return;
+    const list = JSON.parse(localStorage.getItem('achievements_list') || '[]');
+    if (!list.length) return;
+    await supabaseClient.from('achievements').upsert(
+      list.map(a => ({
+        id: a.id, user_id: user.id, type: a.type, period_key: a.periodKey,
+        title: a.title, description: a.desc, reward: a.reward,
+        earned_date: a.earnedDate,
+        earned_at: a.earnedAt ? new Date(a.earnedAt).toISOString() : new Date().toISOString(),
+        status: a.status
+      })),
+      { onConflict: 'id' }
+    );
+  },
+
+  // 首次登录：把本地所有数据一次性推到云端
+  async pushEverything() {
+    console.log('☁️ 开始上传...');
+
+    console.log('→ subjects');
+    const r1 = await this.pushSubjects();
+    console.log('  subjects 结果:', r1);
+
+    console.log('→ exams');
+    const r2 = await this.pushExams();
+    console.log('  exams 结果:', r2);
+
+    console.log('→ achievements');
+    const r3 = await this.pushAchievements();
+    console.log('  achievements 结果:', r3);
+
+    for (const k of Object.keys(localStorage)) {
+      if (k.startsWith('study_')) {
+        const d = k.slice(6);
+        if (/^\d{4}-\d{2}-\d{2}$/.test(d)) {
+          console.log('→ study', d);
+          const r = await this.pushStudyDay(d);
+          console.log('  结果:', r);
+        }
+      }
+      if (k.startsWith('diary_')) {
+        const d = k.slice(6);
+        if (/^\d{4}-\d{2}-\d{2}$/.test(d)) {
+          console.log('→ diary', d);
+          const r = await this.pushDiary(d);
+          console.log('  结果:', r);
+        }
+      }
+    }
+    console.log('☁️ 上传完成');
+  }
+};
+
 /* ============================================================
    工具函数
    ============================================================ */
@@ -3019,20 +3457,67 @@ function checkAchievements() {
   return newOnes;
 }
 
-/* 渲染成就墙 */
+let achCurrentFilter = 'all';
+
+function toggleAchWall() {
+  const body = document.getElementById('ach-wall-body');
+  if (!body) return;
+  const open = body.style.display === 'none';
+  body.style.display = open ? 'block' : 'none';
+  localStorage.setItem('ach_wall_open', open ? '1' : '0');
+}
+
+function setAchFilter(f) {
+  achCurrentFilter = f;
+  document.querySelectorAll('.ach-filter').forEach(b => {
+    b.classList.toggle('active', b.dataset.filter === f);
+  });
+  renderAchievements();
+}
+
+document.querySelectorAll('.ach-filter').forEach(b => {
+  b.addEventListener('click', () => setAchFilter(b.dataset.filter));
+});
+
+(function initAchWall() {
+  const body = document.getElementById('ach-wall-body');
+  if (!body) return;
+  const isOpen = localStorage.getItem('ach_wall_open') === '1';
+  body.style.display = isOpen ? 'block' : 'none';
+})();
+
 function renderAchievements() {
   const box = $('achievement-list');
   if (!box) return;
   const all = getAchievements().slice().sort((a, b) => b.earnedAt - a.earnedAt);
 
-  $('ach-count').textContent = all.length ? all.length + ' 个' : '';
+  const countEl = $('ach-count');
+  if (countEl) countEl.textContent = all.length ? all.length + ' 个' : '';
 
-  if (!all.length) {
-    box.innerHTML = '<div class="ach-empty">还没有成就<br>学习时长达标后会自动出现在这里 ☝️</div>';
+  // 更新分类按钮上的数字
+  document.querySelectorAll('.ach-filter').forEach(b => {
+    const f = b.dataset.filter;
+    const countSpan = b.querySelector('.ach-filter-count');
+    if (!countSpan) return;
+    let count = 0;
+    if (f === 'all') count = all.length;
+    else count = all.filter(a => a.type === f).length;
+    countSpan.textContent = count > 0 ? count : '';
+  });
+
+  // 过滤
+  const filtered = achCurrentFilter === 'all'
+    ? all
+    : all.filter(a => a.type === achCurrentFilter);
+
+  if (!filtered.length) {
+    box.innerHTML = '<div class="ach-empty">' +
+      (all.length ? '这个分类还没有成就' : '还没有成就<br>学习时长达标后会自动出现在这里 ☝️') +
+      '</div>';
     return;
   }
 
-  box.innerHTML = all.map(a => {
+  box.innerHTML = filtered.map(a => {
     const cls = a.status === 'redeemed' ? ' redeemed' : '';
     const statusText = a.status === 'redeemed' ? '已兑换' : '待审核';
     const medal = ACH_MEDAL[a.type] || '🏅';
@@ -3309,9 +3794,9 @@ function refreshAll() {
    /* ============================================================
    数据导出 / 导入 / 清除
    ============================================================ */
-const BACKUP_KEYS_PREFIX = ['study_', 'diary_'];
+const BACKUP_KEYS_PREFIX = ['study_', 'diary_', 'warn_shown_'];
 const BACKUP_KEYS_EXACT = [
-  'subjects_list', 'exams_list',
+  'subjects_list', 'exams_list', 'achievements_list',
   'timer_state', 'timer_hb',
   'data_version', 'last_day'
 ];
