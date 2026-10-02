@@ -2101,11 +2101,11 @@ function renderLeaderboardList(list, hiddenList) {
     html += '<div style="display:flex; align-items:flex-end; justify-content:center; gap:10px; margin-bottom:20px;">';
     podiumOrder.forEach(function(p) {
       const it = p.item;
-      html += '<div style="flex:1; max-width:110px; text-align:center;">';
+      html += '<div style="flex:1; max-width:110px; display:flex; flex-direction:column; align-items:center;">';
       html += renderAvatar(it, 48, 24);
-      html += '<div style="font-size:12px; font-weight:700; color:var(--text-deep); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; margin-bottom:2px;">' + escapeHtml(it.nickname) + '</div>';
-      html += '<div style="font-size:11px; color:var(--accent); font-weight:600; margin-bottom:6px;">' + formatDurationHM(it.total) + '</div>';
-      html += '<div style="height:' + p.height + 'px; background:linear-gradient(135deg, var(--mint-light), var(--mint-very-light)); border-radius:10px 10px 0 0; display:flex; align-items:center; justify-content:center; font-size:22px;">';
+      html += '<div style="font-size:12px; font-weight:700; color:var(--text-deep); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; margin-bottom:2px; text-align:center; width:100%;">' + escapeHtml(it.nickname) + '</div>';
+      html += '<div style="font-size:11px; color:var(--accent); font-weight:600; margin-bottom:6px; text-align:center; width:100%;">' + formatDurationHM(it.total) + '</div>';
+      html += '<div style="height:' + p.height + 'px; width:100%; background:linear-gradient(135deg, var(--mint-light), var(--mint-very-light)); border-radius:10px 10px 0 0; display:flex; align-items:center; justify-content:center; font-size:22px;">';
       if (p.rank === 1) html += '🥇';
       else if (p.rank === 2) html += '🥈';
       else html += '🥉';
