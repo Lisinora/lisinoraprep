@@ -32,7 +32,8 @@
     <button class="save-btn small" style="flex:1; margin-top:0;" onclick="showPanel('users')">👥 用户总览</button>
     <button class="save-btn small ghost" style="flex:1; margin-top:0;" onclick="showPanel('achievements')">🏅 成就审核</button>
     <button class="save-btn small ghost" style="flex:1; margin-top:0;" onclick="showPanel('anomalies')">⚠️ 数据异常</button>
-  </div>
+      <button class="save-btn small ghost" style="flex:1; margin-top:0;" onclick="showPanel('letters')">📬 发布信件</button>
+</div>
 
   <div id="panel-users" class="card">
     <div class="card-title">👥 用户总览 <span class="card-sub" id="users-count"></span></div>
@@ -48,6 +49,21 @@
       单日学习 ≥ 12 小时的记录。发现异常可以到 Supabase → study_records 手动处理。
     </div>
     <div id="anomaly-list"><div class="empty-tip">加载中…</div></div>
+  </div>
+
+    <div id="panel-letters" class="card" style="display:none;">
+    <div class="card-title">📬 发布一封信</div>
+
+    <div style="font-size:12px; color:var(--text-light); margin-bottom:10px;">标题</div>
+    <input type="text" id="letter-title" maxlength="40" placeholder="例如：给妹妹的一封信" style="width:100%; padding:10px 12px; border:2px solid var(--mint-light); border-radius:10px; font-size:14px; font-family:inherit; box-sizing:border-box; margin-bottom:14px;">
+
+    <div style="font-size:12px; color:var(--text-light); margin-bottom:10px;">内容</div>
+    <textarea id="letter-content" placeholder="想对她们说的话…" style="width:100%; min-height:140px; padding:12px; border:2px solid var(--mint-light); border-radius:10px; font-size:14px; font-family:inherit; line-height:1.7; box-sizing:border-box; resize:vertical;"></textarea>
+
+    <button class="save-btn small" style="margin-top:14px;" onclick="publishLetter()">📨 发布</button>
+
+    <div style="font-size:13px; font-weight:700; color:var(--text-deep); margin:22px 0 10px;">已发布</div>
+    <div id="letter-history"><div class="empty-tip">加载中…</div></div>
   </div>
 
   <button class="save-btn small ghost" style="margin-top:20px; background:#FBE9E9; color:var(--danger);" onclick="adminLogout()">🚪 退出后台</button>
@@ -86,6 +102,7 @@ async function checkAdmin() {
   loadUsers();
   loadAchievements();
   loadAnomalies();
+    loadLetters();
 }
 
 function showLogin() {
@@ -99,12 +116,13 @@ async function adminLogout() {
 }
 
 function showPanel(name) {
-  ['users','achievements','anomalies'].forEach(n => {
+  ['users','achievements','anomalies','letters'].forEach(n => {
     $('panel-' + n).style.display = (n === name) ? '' : 'none';
   });
   if (name === 'users') loadUsers();
   if (name === 'achievements') loadAchievements();
   if (name === 'anomalies') loadAnomalies();
+  if (name === 'letters') loadLetters();
 }
 
 /* ============================================================
@@ -370,6 +388,69 @@ async function loadAnomalies() {
     html += '</div>';
   });
   box.innerHTML = html;
+}
+
+/* ============================================================
+   公告 / 信件
+   ============================================================ */
+async function loadLetters() {
+  const box = $('letter-history');
+  if (!box) return;
+  box.innerHTML = '<div class="empty-tip">加载中…</div>';
+
+  const { data, error } = await supabaseClient
+    .from('announcements')
+    .select('*')
+    .order('publish_at', { ascending: false });
+  if (error) {
+    box.innerHTML = '<div class="empty-tip">加载失败：' + error.message + '</div>';
+    return;
+  }
+
+  if (!data || !data.length) {
+    box.innerHTML = '<div class="empty-tip">还没有发布过信件</div>';
+    return;
+  }
+
+  let html = '';
+  data.forEach(function(a) {
+    const date = a.publish_at ? new Date(a.publish_at).toLocaleString('zh-CN') : '';
+    html += '<div style="padding:12px 14px; margin-bottom:8px; background:rgba(255,255,255,0.55); border-radius:12px; border:1px solid rgba(255,255,255,0.6);">';
+    html += '<div style="font-size:13px; font-weight:700; color:var(--text-deep);">' + escapeHtml(a.title) + '</div>';
+    html += '<div style="font-size:11px; color:var(--text-light); margin-top:2px;">' + escapeHtml(date) + '</div>';
+    html += '<div style="font-size:12px; color:var(--text); margin-top:6px; line-height:1.6; white-space:pre-wrap; max-height:80px; overflow:hidden;">' + escapeHtml(a.content) + '</div>';
+    html += '<button onclick="deleteLetter(\'' + a.id + '\')" style="margin-top:8px; padding:5px 12px; background:#FBE9E9; color:#E88A8A; border:none; border-radius:8px; font-size:11px; font-weight:700; cursor:pointer; font-family:inherit;">删除</button>';
+    html += '</div>';
+  });
+  box.innerHTML = html;
+}
+
+async function publishLetter() {
+  const title = $('letter-title').value.trim();
+  const content = $('letter-content').value.trim();
+  if (!title) { alert('请输入标题'); return; }
+  if (!content) { alert('请输入内容'); return; }
+
+  const { data: { session } } = await supabaseClient.auth.getSession();
+  const user = session ? session.user : null;
+  if (!user) { alert('未登录'); return; }
+
+  const { error } = await supabaseClient
+    .from('announcements')
+    .insert({ title: title, content: content, author_id: user.id, publish_at: new Date().toISOString() });
+  if (error) { alert('发布失败：' + error.message); return; }
+
+  $('letter-title').value = '';
+  $('letter-content').value = '';
+  alert('✅ 已发布');
+  loadLetters();
+}
+
+async function deleteLetter(id) {
+  if (!confirm('删除这封信？')) return;
+  const { error } = await supabaseClient.from('announcements').delete().eq('id', id);
+  if (error) { alert('删除失败：' + error.message); return; }
+  loadLetters();
 }
 
 // 只在“退出登录”时切回登录页，其他情况不抢跑

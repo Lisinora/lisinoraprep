@@ -86,6 +86,7 @@ supabaseClient.auth.onAuthStateChange((event, session) => {
    updateAccountEmail(session.user);
     trySyncOnce();
         loadProfile();
+            loadLetter();
   } else {
     overlay.style.display = 'flex';
     updateAccountEmail(null);
@@ -913,6 +914,7 @@ function switchTab(tabName) {
     renderExamCards();
     renderTimeline();
     renderHomeAlerts();
+        loadLetter();
   }
   if (tabName === 'profile') renderSubjectList();
   window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -3016,6 +3018,78 @@ function renderHomeAlerts() {
   }).join('');
 }
 
+/* ============================================================
+   姐姐的信
+   ============================================================ */
+async function loadLetter() {
+  const box = $('home-letter');
+  if (!box) return;
+
+  const { data: { user } } = await supabaseClient.auth.getUser();
+  if (!user) { box.innerHTML = ''; return; }
+
+  const { data, error } = await supabaseClient
+    .from('announcements')
+    .select('*')
+    .order('publish_at', { ascending: false })
+    .limit(5);
+  if (error || !data || !data.length) { box.innerHTML = ''; return; }
+
+  // 已读列表存在 localStorage
+  let readIds = [];
+  try { readIds = JSON.parse(localStorage.getItem('read_letters') || '[]'); } catch (e) {}
+
+  // 找第一封未读的
+  const unread = data.filter(function(a) { return readIds.indexOf(a.id) < 0; });
+  if (!unread.length) { box.innerHTML = ''; return; }
+
+  const letter = unread[0];
+
+  box.innerHTML =
+    '<div class="card" style="background:linear-gradient(135deg, rgba(181,234,215,0.75), rgba(232,248,245,0.75)); border:1.5px solid var(--mint); cursor:pointer;" onclick="openLetter(\'' + letter.id + '\')">' +
+    '<div style="display:flex; align-items:center; gap:10px;">' +
+    '<span style="font-size:26px;">📬</span>' +
+    '<div style="flex:1; min-width:0;">' +
+    '<div style="font-size:14px; font-weight:700; color:var(--text-deep);">姐姐有一封信</div>' +
+    '<div style="font-size:12px; color:var(--text); margin-top:2px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">' + escapeHtml(letter.title) + '</div>' +
+    '</div>' +
+    '<span style="font-size:18px; color:var(--accent);">›</span>' +
+    '</div>' +
+    '</div>';
+}
+
+async function openLetter(id) {
+  const { data, error } = await supabaseClient
+    .from('announcements')
+    .select('*')
+    .eq('id', id)
+    .maybeSingle();
+  if (error || !data) { showToast('打开失败'); return; }
+
+  // 弹窗显示
+  const overlay = document.createElement('div');
+  overlay.style.cssText = 'position:fixed; inset:0; background:rgba(45,106,79,0.35); backdrop-filter:blur(6px); z-index:3000; display:flex; align-items:center; justify-content:center; padding:20px;';
+  overlay.innerHTML =
+    '<div style="background:linear-gradient(135deg, rgba(255,255,255,0.95), rgba(232,248,245,0.95)); border-radius:24px; padding:26px; width:100%; max-width:400px; max-height:80vh; overflow-y:auto; box-shadow:0 12px 48px rgba(45,106,79,0.25);">' +
+    '<div style="font-size:18px; font-weight:700; color:var(--text-deep); margin-bottom:6px;">' + escapeHtml(data.title) + '</div>' +
+    '<div style="font-size:11px; color:var(--text-light); margin-bottom:16px;">' + (data.publish_at ? new Date(data.publish_at).toLocaleString('zh-CN') : '') + '</div>' +
+    '<div style="font-size:14px; color:var(--text); line-height:1.8; white-space:pre-wrap;">' + escapeHtml(data.content) + '</div>' +
+    '<button id="letter-close-btn" style="width:100%; margin-top:22px; padding:12px; background:var(--accent); color:#fff; border:none; border-radius:12px; font-size:14px; font-weight:700; cursor:pointer; font-family:inherit;">我知道啦 💚</button>' +
+    '</div>';
+  document.body.appendChild(overlay);
+
+  overlay.querySelector('#letter-close-btn').onclick = function() {
+    // 标记已读
+    let readIds = [];
+    try { readIds = JSON.parse(localStorage.getItem('read_letters') || '[]'); } catch (e) {}
+    if (readIds.indexOf(id) < 0) {
+      readIds.push(id);
+      localStorage.setItem('read_letters', JSON.stringify(readIds));
+    }
+    document.body.removeChild(overlay);
+    loadLetter();
+  };
+}
 
 /* ============================================================
    跨天检测（页面级）
@@ -3043,6 +3117,7 @@ function refreshAll() {
   renderHomeAlerts();
   renderTimeline();
   renderSubjectList();
+    loadLetter();
   if (currentSubjectName) renderSubjectDetail();
 }
 
