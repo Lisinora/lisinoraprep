@@ -449,6 +449,16 @@ async function loadProfile() {
     } catch (e) {}
   }
   renderProfileHeader();
+    // 顺便读一下排行榜开关状态
+  try {
+    const { data: pref } = await supabaseClient
+      .from('profiles')
+      .select('show_in_ranking')
+      .eq('id', user.id)
+      .maybeSingle();
+    const val = (pref && pref.show_in_ranking === false) ? false : true;
+    renderRankingToggleBtn(val);
+  } catch (e) {}
 }
 
 async function handleLogout() {
@@ -2049,10 +2059,7 @@ async function loadAndRenderLeaderboard() {
         avatarUrl: p.avatar_url || ''
       };
 
-      const forceHidden = (p.role === 'admin' || p.role === 'hidden');
-      const userHidden = (p.show_in_ranking === false);
-
-      if (forceHidden || userHidden) {
+      if (p.show_in_ranking === false) {
         hiddenList.push(item);
       } else {
         rankingList.push(item);
