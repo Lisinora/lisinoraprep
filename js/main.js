@@ -178,6 +178,29 @@ async function handleLogout() {
   location.reload();
 }
 
+// 注销账号：删除云端用户 + 所有数据，清空本地
+async function deleteAccount() {
+  if (!confirm('确定要注销账号吗？\n\n所有学习记录、日记、考试、科目都会被永久删除。')) return;
+  const check = prompt('请输入「注销」两个字确认：');
+  if (check !== '注销') { showToast('已取消'); return; }
+
+  showToast('正在注销…');
+  const { error } = await supabaseClient.rpc('delete_my_account');
+  if (error) {
+    alert('注销失败：' + error.message);
+    return;
+  }
+
+  // 清本地数据
+  clearLocalUserData();
+  localStorage.removeItem('current_user_id');
+  sessionStorage.removeItem('cloud_synced');
+
+  await supabaseClient.auth.signOut();
+  showToast('✅ 账号已注销');
+  setTimeout(() => location.reload(), 800);
+}
+
 /* ============================================================
    云端同步 · CloudSync
    ============================================================ */
@@ -643,13 +666,18 @@ function switchTab(tabName) {
     updateStats();
     drawLineChart();
     updateTimerUI();
+  }
+  if (tabName === 'growth') {
+    renderCalendar();
     renderAchievements();
   }
-  if (tabName === 'diary') renderCalendar();
-  if (tabName === 'home') updateHomeOverview();
-    if (tabName === 'home') renderExamCards();
-  if (tabName === 'subjects') renderSubjectList();
-  if (tabName === 'dates') renderTimeline();
+  if (tabName === 'home') {
+    updateHomeOverview();
+    renderExamCards();
+    renderTimeline();
+    renderHomeAlerts();
+  }
+  if (tabName === 'profile') renderSubjectList();
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 document.querySelectorAll('.tab').forEach(tab => {
@@ -1510,6 +1538,19 @@ function closeSubjectPage() {
   updateStats();
   drawLineChart();
   updateHomeOverview();
+}
+
+/* ============================================================
+   设置页
+   ============================================================ */
+function openSettings() {
+  $('settings-page').classList.add('show');
+  document.body.style.overflow = 'hidden';
+}
+
+function closeSettings() {
+  $('settings-page').classList.remove('show');
+  document.body.style.overflow = '';
 }
 
 function getSubjectHistory(name) {

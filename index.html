@@ -47,26 +47,25 @@
 
   <!-- Tab 导航 -->
   <div class="tabs">
-    <button class="tab active" data-tab="home">🏠 首页</button>
-    <button class="tab" data-tab="diary">📖 日记</button>
+        <button class="tab active" data-tab="home">🏠 首页</button>
     <button class="tab" data-tab="study">⏱️ 学习</button>
-    <button class="tab" data-tab="subjects">📚 科目</button>
-    <button class="tab" data-tab="dates">📅 节点</button>
+    <button class="tab" data-tab="growth">🌱 成长</button>
+    <button class="tab" data-tab="profile">👤 我的</button>
   </div>
 
-  <!-- ============ Tab1: 首页 ============ -->
+    <!-- ============ Tab1: 首页 ============ -->
   <div class="tab-content active" id="tab-home">
     <div id="home-alerts"></div>
 
-   <div id="exam-cards"></div>
-<button class="add-exam-btn" onclick="openExamModal(null)">＋ 添加考试</button>
+    <div id="exam-cards"></div>
+    <button class="add-exam-btn" onclick="openExamModal(null)">＋ 添加考试</button>
 
     <div class="card quote-card">
-  <div class="quote-tag" id="quote-tag">·</div>
-  <div class="quote-text" id="quote-text">加载中…</div>
-  <div class="quote-source" id="quote-source"></div>
-  <button class="quote-btn" onclick="nextQuote()">换一条 ↻</button>
-</div>
+      <div class="quote-tag" id="quote-tag">·</div>
+      <div class="quote-text" id="quote-text">加载中…</div>
+      <div class="quote-source" id="quote-source"></div>
+      <button class="quote-btn" onclick="nextQuote()">换一条 ↻</button>
+    </div>
 
     <div class="card">
       <div class="card-title">📋 今日概览</div>
@@ -87,13 +86,20 @@
     </div>
 
     <div class="quick-actions">
-      <button class="quick-btn primary" onclick="switchTab('diary')">
+      <button class="quick-btn primary" onclick="switchTab('growth')">
         <span class="quick-btn-icon">✍️</span>写今日日记
       </button>
       <button class="quick-btn secondary" onclick="switchTab('study')">
         <span class="quick-btn-icon">⏱️</span>开始学习计时
       </button>
     </div>
+
+<!-- 关键时间节点（从原"节点"Tab 挪到首页） -->
+    <div class="card">
+      <div class="card-title">🗓️ 关键时间节点 <span class="card-sub" id="timeline-exam-name"></span></div>
+      <div class="timeline" id="timeline"></div>
+    </div>
+
   </div>
 
   <!-- PWA 安装按钮（默认隐藏，浏览器支持时才显示） -->
@@ -106,7 +112,7 @@
 </div>
 
   <!-- ============ Tab2: 日记 ============ -->
-  <div class="tab-content" id="tab-diary">
+  <div class="tab-content" id="tab-growth">
     <div class="card">
       <div class="date-picker-row">
         <button class="date-nav-btn" onclick="navigateDate(-1)">‹</button>
@@ -136,6 +142,28 @@
         </div>
       </div>
       <div class="calendar-grid" id="calendar-grid"></div>
+    </div>
+    <!-- 成就墙 -->
+    <div class="card">
+      <div class="card-title" style="cursor:pointer; user-select:none;" onclick="toggleAchWall()">
+        <span id="ach-toggle-icon">▶</span>
+        <span>🏅 成就墙</span>
+        <span class="card-sub" id="ach-count"></span>
+      </div>
+      <div id="ach-wall-body" style="display:none;">
+        <div class="ach-filter-row">
+          <button class="ach-filter active" data-filter="all"><span class="ach-filter-label">全部</span><span class="ach-filter-count"></span></button>
+          <button class="ach-filter" data-filter="daily"><span class="ach-filter-label">单日</span><span class="ach-filter-count"></span></button>
+          <button class="ach-filter" data-filter="weekly"><span class="ach-filter-label">单周</span><span class="ach-filter-count"></span></button>
+          <button class="ach-filter" data-filter="monthly"><span class="ach-filter-label">单月</span><span class="ach-filter-count"></span></button>
+          <button class="ach-filter" data-filter="total"><span class="ach-filter-label">累计</span><span class="ach-filter-count"></span></button>
+          <button class="ach-filter" data-filter="exam"><span class="ach-filter-label">考试</span><span class="ach-filter-count"></span></button>
+        </div>
+        <div id="achievement-list"></div>
+        <div class="manual-hint" style="margin-top:12px; line-height:1.7;">
+          成就达成后自动生成唯一编号。审核获得成就，同一编号不可重复兑换。
+        </div>
+      </div>
     </div>
   </div>
 
@@ -197,29 +225,6 @@
       </div>
     </div>
 
-    <!-- 成就墙 -->
-    <div class="card">
-      <div class="card-title" style="cursor:pointer; user-select:none;" onclick="toggleAchWall()">
-        <span id="ach-toggle-icon">▶</span>
-        <span>🏅 成就墙</span>
-        <span class="card-sub" id="ach-count"></span>
-      </div>
-      <div id="ach-wall-body" style="display:none;">
-        <div class="ach-filter-row">
-          <button class="ach-filter active" data-filter="all"><span class="ach-filter-label">全部</span><span class="ach-filter-count"></span></button>
-          <button class="ach-filter" data-filter="daily"><span class="ach-filter-label">单日</span><span class="ach-filter-count"></span></button>
-          <button class="ach-filter" data-filter="weekly"><span class="ach-filter-label">单周</span><span class="ach-filter-count"></span></button>
-          <button class="ach-filter" data-filter="monthly"><span class="ach-filter-label">单月</span><span class="ach-filter-count"></span></button>
-          <button class="ach-filter" data-filter="total"><span class="ach-filter-label">累计</span><span class="ach-filter-count"></span></button>
-          <button class="ach-filter" data-filter="exam"><span class="ach-filter-label">考试</span><span class="ach-filter-count"></span></button>
-        </div>
-        <div id="achievement-list"></div>
-        <div class="manual-hint" style="margin-top:12px; line-height:1.7;">
-          成就达成后自动生成唯一编号。审核获得成就，同一编号不可重复兑换。
-        </div>
-      </div>
-    </div>
-
     <!-- 趋势图 -->
     <div class="card">
       <div class="card-title">📊 学习时长趋势</div>
@@ -236,13 +241,15 @@
     </div>
   </div>
 
-  <!-- ============ Tab4: 科目管理 ============ -->
-  <div class="tab-content" id="tab-subjects">
+  
+  <!-- ============ Tab4: 我的 ============ -->
+  <div class="tab-content" id="tab-profile">
     <div class="card">
       <div class="card-title">📚 我的科目</div>
       <div id="subject-list"></div>
       <button class="add-subject-btn" onclick="openSubjectModal(null)">＋ 添加科目</button>
     </div>
+
     <div class="card">
       <div class="card-title">💡 使用说明</div>
       <div style="font-size:13px; color:var(--text); line-height:1.9;">
@@ -252,36 +259,17 @@
         · 删除科目不会删除已产生的历史记录，重新添加同名科目即可恢复
       </div>
     </div>
-        <div class="card">
-      <div class="card-title">💾 数据管理</div>
-      <div style="font-size:13px; color:var(--text); line-height:1.9; margin-bottom:14px;">
-        导出会把所有学习记录、日记、考试、科目打包成一个 JSON 文件，可以存云盘、发给自己。换手机时，在新手机打开 LisinoraPrep，导入这个文件就能恢复全部数据。
-      </div>
-      <div style="display:flex; gap:10px;">
-        <button class="save-btn small" style="flex:1; margin-top:0;" onclick="exportData()">📦 导出备份</button>
-        <button class="save-btn small ghost" style="flex:1; margin-top:0;" onclick="document.getElementById('import-file').click()">📥 导入恢复</button>
-      </div>
-      <input type="file" id="import-file" accept=".json,application/json" style="display:none" onchange="importData(event)">
-      <button class="save-btn small ghost" style="margin-top:10px; background:#FBE9E9; color:var(--danger);" onclick="clearAllData()">🗑️ 清除所有数据</button>
-      <div class="manual-hint">清除操作不可恢复，建议先导出备份。</div>
-    </div>
-        <div class="card">
-      <div class="card-title">👤 我的账户</div>
-      <div style="font-size:13px; color:var(--text); line-height:1.9; margin-bottom:14px;">
-        当前登录：<span id="account-email" style="color:var(--accent); font-weight:600; word-break:break-all;">加载中…</span>
-      </div>
-      <button class="save-btn small ghost" style="background:#FBE9E9; color:var(--danger); margin-top:0;" onclick="handleLogout()">🚪 退出登录</button>
-    </div>
-  </div>
 
-  <!-- ============ Tab5: 关键日期 ============ -->
-  <div class="tab-content" id="tab-dates">
     <div class="card">
-      <div class="card-title">🗓️ 关键时间节点 <span class="card-sub" id="timeline-exam-name"></span></div>
-      <div class="timeline" id="timeline"></div>
+      <div class="card-title">⚙️ 设置</div>
+      <div style="font-size:12px; color:var(--text-light); margin-bottom:14px; line-height:1.7;">
+        数据备份、账户管理都在这里
+      </div>
+      <button class="save-btn small ghost" onclick="openSettings()">打开设置</button>
     </div>
   </div>
 </div>
+  
 
 <!-- 考试编辑模态框 -->
 <div class="modal-mask" id="exam-modal">
@@ -355,6 +343,40 @@
       <div class="page-header-spacer"></div>
     </div>
     <div id="sp-body"></div>
+  </div>
+</div>
+
+<!-- 设置页 -->
+<div class="page-overlay" id="settings-page">
+  <div class="page-inner">
+    <div class="page-header">
+      <button class="back-btn" onclick="closeSettings()">‹ 返回</button>
+      <div class="page-title">⚙️ 设置</div>
+      <div class="page-header-spacer"></div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">💾 数据管理</div>
+      <div style="font-size:13px; color:var(--text); line-height:1.9; margin-bottom:14px;">
+        导出会把所有学习记录、日记、考试、科目打包成一个 JSON 文件，可以存云盘、发给自己。换手机时，在新手机打开 LisinoraPrep，导入这个文件就能恢复全部数据。
+      </div>
+      <div style="display:flex; gap:10px;">
+        <button class="save-btn small" style="flex:1; margin-top:0;" onclick="exportData()">📦 导出备份</button>
+        <button class="save-btn small ghost" style="flex:1; margin-top:0;" onclick="document.getElementById('import-file').click()">📥 导入恢复</button>
+      </div>
+      <input type="file" id="import-file" accept=".json,application/json" style="display:none" onchange="importData(event)">
+      <button class="save-btn small ghost" style="margin-top:10px; background:#FBE9E9; color:var(--danger);" onclick="clearAllData()">🗑️ 清除所有数据</button>
+      <div class="manual-hint">清除操作不可恢复，建议先导出备份。</div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">👤 我的账户</div>
+      <div style="font-size:13px; color:var(--text); line-height:1.9; margin-bottom:14px;">
+        当前登录：<span id="account-email" style="color:var(--accent); font-weight:600; word-break:break-all;">加载中…</span>
+      </div>
+      <button class="save-btn small ghost" style="background:#FBE9E9; color:var(--danger); margin-top:0;" onclick="handleLogout()">🚪 退出登录</button>
+      <button class="save-btn small ghost" style="background:#FBE9E9; color:var(--danger); margin-top:10px; font-size:12px; opacity:0.8;" onclick="deleteAccount()">⚠️ 注销账号</button>
+    </div>
   </div>
 </div>
 
