@@ -38,42 +38,94 @@ function nameToEmail(name) {
   return 'u' + hex + '@lisinoraprep.com';
 }
 
+// 判断错误是不是"网络问题"，网络问题才值得重试
+function isRetryableError(err) {
+  if (!err) return false;
+  const name = err.name || '';
+  const msg = (err.message || '').toLowerCase();
+  if (name === 'AuthRetryableFetchError') return true;
+  if (msg.indexOf('fetch') >= 0) return true;
+  if (msg.indexOf('network') >= 0) return true;
+  if (msg.indexOf('timeout') >= 0) return true;
+  if (msg.indexOf('load failed') >= 0) return true;
+  return false;
+}
+
+// 带重试的登录（最多试 3 次）
+async function signInWithRetry(email, password, btn) {
+  const MAX = 3;
+  let lastErr = null;
+  for (let i = 1; i <= MAX; i++) {
+    const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password });
+    if (!error) return { data: data, error: null };
+    lastErr = error;
+    if (!isRetryableError(error)) return { data: null, error: error };
+    if (i < MAX) {
+      if (btn) btn.textContent = '网络有点慢，重试中 ' + i + '/' + (MAX - 1) + '…';
+      await new Promise(function(r) { setTimeout(r, 800); });
+    }
+  }
+  return { data: null, error: lastErr };
+}
+
+// 带重试的注册（最多试 3 次）
+async function signUpWithRetry(email, password, account, btn) {
+  const MAX = 3;
+  let lastErr = null;
+  for (let i = 1; i <= MAX; i++) {
+    const { data, error } = await supabaseClient.auth.signUp({
+      email: email,
+      password: password,
+      options: { data: { display_name: account } }
+    });
+    if (!error) return { data: data, error: null };
+    lastErr = error;
+    if (!isRetryableError(error)) return { data: null, error: error };
+    if (i < MAX) {
+      if (btn) btn.textContent = '网络有点慢，重试中 ' + i + '/' + (MAX - 1) + '…';
+      await new Promise(function(r) { setTimeout(r, 800); });
+    }
+  }
+  return { data: null, error: lastErr };
+}
+
 async function handleAuth() {
   const account = document.getElementById('auth-account').value.trim();
   const password = document.getElementById('auth-password').value;
   const errorDiv = document.getElementById('auth-error');
   const btn = document.getElementById('auth-btn');
-  
+
   if (!account || !password) {
     errorDiv.textContent = '请填写名字（或邮箱）和密码';
     errorDiv.style.display = 'block';
     return;
   }
-  
+
   // 有 @ 就当邮箱；没有就当名字，编码成邮箱
   const email = account.indexOf('@') >= 0 ? account : nameToEmail(account);
-  
+
   errorDiv.style.display = 'none';
   btn.textContent = '处理中...';
   btn.disabled = true;
-  
+
   try {
     if (isLoginMode) {
-      const { error } = await supabaseClient.auth.signInWithPassword({ email, password });
-      if (error) throw error;
+      const res = await signInWithRetry(email, password, btn);
+      if (res.error) throw res.error;
     } else {
-      const { error } = await supabaseClient.auth.signUp({ email, password, options: { data: { display_name: account } } });
-      if (error) throw error;
+      const res = await signUpWithRetry(email, password, account, btn);
+      if (res.error) throw res.error;
       alert('注册成功！现在可以登录了。');
       toggleAuthMode();
     }
   } catch (err) {
     let msg = err.message || '操作失败';
-    // 把 Supabase 的英文报错换成弟弟妹妹看得懂的话
     if (msg.indexOf('already registered') >= 0 || msg.indexOf('already been registered') >= 0) {
       msg = '这个名字已经被用了，换一个吧（加上小名/昵称试试）';
     } else if (msg.indexOf('Invalid login credentials') >= 0) {
       msg = '名字或密码不对，再试试～';
+    } else if (msg.toLowerCase().indexOf('fetch') >= 0 || msg.toLowerCase().indexOf('network') >= 0 || msg.toLowerCase().indexOf('load failed') >= 0) {
+      msg = '网络开小差了，请检查网络再点一次登录 🌐';
     }
     errorDiv.textContent = msg;
     errorDiv.style.display = 'block';
