@@ -799,7 +799,7 @@ function switchTab(tabName) {
   }
   if (tabName === 'growth') {
     renderCalendar();
-    renderAchievements();
+    refreshAchievementsFromCloud();
   }
   if (tabName === 'home') {
     updateHomeOverview();
@@ -2613,6 +2613,29 @@ document.querySelectorAll('.ach-filter').forEach(b => {
   const isOpen = localStorage.getItem('ach_wall_open') === '1';
   body.style.display = isOpen ? 'block' : 'none';
 })();
+
+// 从云端拉自己的成就，覆盖本地（姐姐审核后能看到新状态）
+async function refreshAchievementsFromCloud() {
+  const { data: { user } } = await supabaseClient.auth.getUser();
+  if (!user) return;
+  const { data: achs, error } = await supabaseClient
+    .from('achievements')
+    .select('*')
+    .eq('user_id', user.id);
+  if (error || !achs) return;
+  localStorage.setItem('achievements_list', JSON.stringify(
+    achs.map(function(a) {
+      return {
+        id: a.id, type: a.type, periodKey: a.period_key,
+        title: a.title, desc: a.description, reward: a.reward,
+        earnedDate: a.earned_date,
+        earnedAt: a.earned_at ? new Date(a.earned_at).getTime() : Date.now(),
+        status: a.status
+      };
+    })
+  ));
+  renderAchievements();
+}
 
 function renderAchievements() {
   const box = $('achievement-list');

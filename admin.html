@@ -34,9 +34,21 @@
     <button class="save-btn small ghost" style="flex:1; margin-top:0;" onclick="showPanel('anomalies')">⚠️ 数据异常</button>
   </div>
 
-  <div id="panel-users" class="card"><div class="empty-tip">用户总览（4.2 实现）</div></div>
-  <div id="panel-achievements" class="card" style="display:none;"><div class="empty-tip">成就审核（4.3 实现）</div></div>
-  <div id="panel-anomalies" class="card" style="display:none;"><div class="empty-tip">数据异常（4.4 实现）</div></div>
+  <div id="panel-users" class="card">
+    <div class="card-title">👥 用户总览 <span class="card-sub" id="users-count"></span></div>
+    <div id="users-list"><div class="empty-tip">加载中…</div></div>
+  </div>
+  <div id="panel-achievements" class="card" style="display:none;">
+    <div class="card-title">🏅 成就审核 <span class="card-sub" id="ach-count-label"></span></div>
+    <div id="ach-list"><div class="empty-tip">加载中…</div></div>
+  </div>
+  <div id="panel-anomalies" class="card" style="display:none;">
+    <div class="card-title">⚠️ 数据异常 <span class="card-sub" id="anomaly-count"></span></div>
+    <div style="font-size:12px; color:var(--text-light); margin-bottom:12px; line-height:1.7;">
+      单日学习 ≥ 12 小时的记录。发现异常可以到 Supabase → study_records 手动处理。
+    </div>
+    <div id="anomaly-list"><div class="empty-tip">加载中…</div></div>
+  </div>
 
   <button class="save-btn small ghost" style="margin-top:20px; background:#FBE9E9; color:var(--danger);" onclick="adminLogout()">🚪 退出后台</button>
 </div>
@@ -59,7 +71,8 @@ async function adminLogin() {
 }
 
 async function checkAdmin() {
-  const { data: { user } } = await supabaseClient.auth.getUser();
+  const { data: { session } } = await supabaseClient.auth.getSession();
+  const user = session ? session.user : null;
   if (!user) { showLogin(); return; }
   const { data } = await supabaseClient.from('profiles').select('role').eq('id', user.id).maybeSingle();
   if (!data || data.role !== 'admin') {
@@ -70,6 +83,9 @@ async function checkAdmin() {
   }
   $('admin-login').style.display = 'none';
   $('admin-app').style.display = '';
+  loadUsers();
+  loadAchievements();
+  loadAnomalies();
 }
 
 function showLogin() {
@@ -86,16 +102,288 @@ function showPanel(name) {
   ['users','achievements','anomalies'].forEach(n => {
     $('panel-' + n).style.display = (n === name) ? '' : 'none';
   });
+  if (name === 'users') loadUsers();
+  if (name === 'achievements') loadAchievements();
+  if (name === 'anomalies') loadAnomalies();
+}
+
+/* ============================================================
+   用户总览
+   ============================================================ */
+async function loadUsers() {
+  const box = $('users-list');
+  if (!box) return;
+  box.innerHTML = '<div class="empty-tip">加载中…</div>';
+
+  // 拉所有 profiles
+  const { data: profiles, error: e1 } = await supabaseClient
+    .from('profiles')
+    .select('id, email, nickname, role, avatar_emoji, avatar_color');
+  if (e1) {
+    box.innerHTML = '<div class="empty-tip">加载失败：' + e1.message + '</div>';
+    return;
+  }
+
+  // 拉所有 study_records 聚合
+  const { data: records } = await supabaseClient
+    .from('study_records')
+    .select('user_id, seconds');
+  const totals = {};
+  (records || []).forEach(function(r) {
+    if (!totals[r.user_id]) totals[r.user_id] = 0;
+    totals[r.user_id] += (r.seconds || 0);
+  });
+
+  // 拉所有 achievements 计数
+  const { data: achs } = await supabaseClient
+    .from('achievements')
+    .select('user_id, status');
+  const achCount = {};
+  (achs || []).forEach(function(a) {
+    if (!achCount[a.user_id]) achCount[a.user_id] = { total: 0, pending: 0 };
+    achCount[a.user_id].total += 1;
+    if (a.status === 'pending') achCount[a.user_id].pending += 1;
+  });
+
+  // 渲染
+  const list = (profiles || []).slice();
+  $('users-count').textContent = list.length + ' 个账号';
+
+  if (!list.length) {
+    box.innerHTML = '<div class="empty-tip">还没有账号</div>';
+    return;
+  }
+
+  let html = '';
+  list.forEach(function(p) {
+    const total = totals[p.id] || 0;
+    const ac = achCount[p.id] || { total: 0, pending: 0 };
+    const emoji = p.avatar_emoji || '🍀';
+    const color = p.avatar_color || '#52B788';
+    const roleLabel = p.role === 'admin' ? '🔐 管理员' : (p.role === 'hidden' ? '🚫 隐藏' : '👤 普通用户');
+    const nickname = p.nickname || '(无名)';
+
+    html += '<div style="display:flex; align-items:center; gap:12px; padding:12px 14px; margin-bottom:10px; background:rgba(255,255,255,0.55); border-radius:14px; border:1px solid rgba(255,255,255,0.6);">';
+    html += '<div style="width:44px; height:44px; border-radius:50%; background:' + color + '; display:flex; align-items:center; justify-content:center; font-size:22px; flex-shrink:0;">' + emoji + '</div>';
+    html += '<div style="flex:1; min-width:0;">';
+    html += '<div style="font-size:14px; font-weight:700; color:var(--text-deep); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">' + escapeHtml(nickname) + ' <span style="font-size:11px; color:var(--text-light); font-weight:500;">' + roleLabel + '</span></div>';
+    html += '<div style="font-size:11px; color:var(--text-light); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; margin-top:2px;">' + escapeHtml(p.email || '') + '</div>';
+    html += '<div style="font-size:12px; color:var(--accent); font-weight:600; margin-top:4px;">⏱️ ' + formatDurationHM(total) + ' · 🏅 ' + ac.total + ' 个成就' + (ac.pending ? '（' + ac.pending + ' 待审）' : '') + '</div>';
+    html += '</div>';
+    html += '</div>';
+  });
+  box.innerHTML = html;
+}
+
+// 工具函数（如果 admin.html 里还没有）
+function escapeHtml(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, function(c) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+  });
+}
+function formatDurationHM(sec) {
+  sec = Math.max(0, Math.floor(sec || 0));
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  if (h === 0 && m === 0) return '0m';
+  if (h === 0) return m + 'm';
+  if (m === 0) return h + 'h';
+  return h + 'h ' + m + 'm';
+}
+
+/* ============================================================
+   成就审核
+   ============================================================ */
+async function loadAchievements() {
+  const box = $('ach-list');
+  if (!box) return;
+  box.innerHTML = '<div class="empty-tip">加载中…</div>';
+
+  const { data: achs, error } = await supabaseClient
+    .from('achievements')
+    .select('*')
+    .order('earned_at', { ascending: false });
+  if (error) {
+    box.innerHTML = '<div class="empty-tip">加载失败：' + error.message + '</div>';
+    return;
+  }
+
+  // 拉用户资料
+  const ids = [];
+  (achs || []).forEach(function(a) {
+    if (ids.indexOf(a.user_id) < 0) ids.push(a.user_id);
+  });
+  let profileMap = {};
+  if (ids.length) {
+    const { data: profiles } = await supabaseClient
+      .from('profiles')
+      .select('id, nickname, avatar_emoji, avatar_color')
+      .in('id', ids);
+    (profiles || []).forEach(function(p) { profileMap[p.id] = p; });
+  }
+
+  const list = achs || [];
+  const pendingList = list.filter(function(a) { return a.status === 'pending'; });
+  const others = list.filter(function(a) { return a.status !== 'pending'; });
+
+  $('ach-count-label').textContent = pendingList.length + ' 条待审核';
+
+  if (!list.length) {
+    box.innerHTML = '<div class="empty-tip">还没有成就记录</div>';
+    return;
+  }
+
+  let html = '';
+  if (pendingList.length) {
+    html += '<div style="font-size:13px; font-weight:700; color:var(--text-deep); margin:8px 0 10px;">⏳ 待审核（' + pendingList.length + '）</div>';
+    pendingList.forEach(function(a) {
+      html += renderAchCard(a, profileMap[a.user_id], true);
+    });
+  } else {
+    html += '<div style="font-size:13px; color:var(--text-light); margin:8px 0 10px;">✅ 没有待审核的成就</div>';
+  }
+
+  if (others.length) {
+    html += '<div style="font-size:13px; font-weight:700; color:var(--text-deep); margin:18px 0 10px;">📜 历史记录（' + others.length + '）</div>';
+    others.forEach(function(a) {
+      html += renderAchCard(a, profileMap[a.user_id], false);
+    });
+  }
+
+  box.innerHTML = html;
+}
+
+function renderAchCard(a, profile, canReview) {
+  const emoji = profile ? (profile.avatar_emoji || '🍀') : '🍀';
+  const color = profile ? (profile.avatar_color || '#52B788') : '#52B788';
+  const nickname = profile ? (profile.nickname || '(无名)') : '未知用户';
+  const statusLabel = a.status === 'redeemed' ? '已兑换' : (a.status === 'approved' ? '已通过' : '待审核');
+  const statusColor = a.status === 'pending' ? '#B8860B' : '#7A9A8C';
+
+  let html = '<div style="padding:14px; margin-bottom:10px; background:rgba(255,255,255,0.6); border-radius:14px; border:1px solid rgba(255,255,255,0.6);">';
+  html += '<div style="display:flex; align-items:center; gap:10px; margin-bottom:8px;">';
+  html += '<div style="width:32px; height:32px; border-radius:50%; background:' + color + '; display:flex; align-items:center; justify-content:center; font-size:16px; flex-shrink:0;">' + emoji + '</div>';
+  html += '<div style="flex:1; font-size:13px; font-weight:700; color:var(--text-deep);">' + escapeHtml(nickname) + '</div>';
+  html += '<span style="font-size:11px; color:' + statusColor + '; font-weight:700; background:rgba(255,255,255,0.7); padding:2px 8px; border-radius:999px;">' + statusLabel + '</span>';
+  html += '</div>';
+  html += '<div style="font-size:13px; font-weight:600; color:var(--text-deep);">' + escapeHtml(a.title) + ' · ¥' + a.reward + '</div>';
+  html += '<div style="font-size:11px; color:var(--text); margin-top:3px;">' + escapeHtml(a.description || '') + '</div>';
+  html += '<div style="font-size:10px; color:var(--text-light); margin-top:6px; font-family:monospace;">' + escapeHtml(a.id) + '</div>';
+
+  if (canReview) {
+    html += '<div style="display:flex; gap:8px; margin-top:10px;">';
+    html += '<button onclick="approveAch(\'' + a.id + '\')" style="flex:1; padding:9px; background:#52B788; color:#fff; border:none; border-radius:10px; font-size:13px; font-weight:700; cursor:pointer; font-family:inherit;">✓ 通过</button>';
+    html += '<button onclick="rejectAch(\'' + a.id + '\')" style="flex:1; padding:9px; background:#FBE9E9; color:#E88A8A; border:none; border-radius:10px; font-size:13px; font-weight:700; cursor:pointer; font-family:inherit;">✕ 驳回</button>';
+    html += '</div>';
+  }
+
+  html += '</div>';
+  return html;
+}
+
+async function approveAch(id) {
+  if (!confirm('通过这条成就？通过后妹妹端会显示"已兑换"')) return;
+  const { error } = await supabaseClient
+    .from('achievements')
+    .update({ status: 'redeemed', redeemed_at: new Date().toISOString() })
+    .eq('id', id);
+  if (error) { alert('失败：' + error.message); return; }
+  loadAchievements();
+}
+
+async function rejectAch(id) {
+  if (!confirm('驳回这条成就？数据将被删除，无法恢复')) return;
+  const { error } = await supabaseClient
+    .from('achievements')
+    .delete()
+    .eq('id', id);
+  if (error) { alert('失败：' + error.message); return; }
+  loadAchievements();
+}
+
+/* ============================================================
+   数据异常（单日 ≥ 12 小时）
+   ============================================================ */
+async function loadAnomalies() {
+  const box = $('anomaly-list');
+  if (!box) return;
+  box.innerHTML = '<div class="empty-tip">加载中…</div>';
+
+  const { data: records, error } = await supabaseClient
+    .from('study_records')
+    .select('user_id, date, seconds');
+  if (error) {
+    box.innerHTML = '<div class="empty-tip">加载失败：' + error.message + '</div>';
+    return;
+  }
+
+  // 按 user_id + date 聚合成一天的总秒数
+  const dayMap = {};
+  (records || []).forEach(function(r) {
+    const key = r.user_id + '|' + r.date;
+    if (!dayMap[key]) dayMap[key] = { user_id: r.user_id, date: r.date, total: 0 };
+    dayMap[key].total += (r.seconds || 0);
+  });
+
+  // 筛出 ≥ 12 小时的
+  const WARN_SEC = 12 * 3600;
+  const anomalies = Object.keys(dayMap)
+    .map(function(k) { return dayMap[k]; })
+    .filter(function(x) { return x.total >= WARN_SEC; })
+    .sort(function(a, b) { return b.total - a.total; });
+
+  // 拉用户资料
+  const ids = [];
+  anomalies.forEach(function(a) {
+    if (ids.indexOf(a.user_id) < 0) ids.push(a.user_id);
+  });
+  let profileMap = {};
+  if (ids.length) {
+    const { data: profiles } = await supabaseClient
+      .from('profiles')
+      .select('id, nickname, avatar_emoji, avatar_color')
+      .in('id', ids);
+    (profiles || []).forEach(function(p) { profileMap[p.id] = p; });
+  }
+
+  $('anomaly-count').textContent = anomalies.length ? anomalies.length + ' 条' : '';
+
+  if (!anomalies.length) {
+    box.innerHTML = '<div class="empty-tip">✅ 没有异常记录</div>';
+    return;
+  }
+
+  let html = '';
+  anomalies.forEach(function(a) {
+    const p = profileMap[a.user_id] || {};
+    const emoji = p.avatar_emoji || '🍀';
+    const color = p.avatar_color || '#52B788';
+    const nickname = p.nickname || '(无名)';
+    const hours = (a.total / 3600).toFixed(1);
+
+    html += '<div style="display:flex; align-items:center; gap:12px; padding:12px 14px; margin-bottom:8px; background:#FBE9E9; border:1px solid #E88A8A; border-radius:12px;">';
+    html += '<div style="width:36px; height:36px; border-radius:50%; background:' + color + '; display:flex; align-items:center; justify-content:center; font-size:18px; flex-shrink:0;">' + emoji + '</div>';
+    html += '<div style="flex:1; min-width:0;">';
+    html += '<div style="font-size:13px; font-weight:700; color:var(--text-deep);">' + escapeHtml(nickname) + '</div>';
+    html += '<div style="font-size:11px; color:var(--text); margin-top:2px;">' + escapeHtml(a.date) + ' · <span style="color:#E88A8A; font-weight:700;">' + hours + ' 小时</span></div>';
+    html += '</div>';
+    html += '</div>';
+  });
+  box.innerHTML = html;
 }
 
 // 只在“退出登录”时切回登录页，其他情况不抢跑
 supabaseClient.auth.onAuthStateChange((event, session) => {
-  if (event === 'SIGNED_OUT') showLogin();
+  if (event === 'SIGNED_OUT') {
+    showLogin();
+  }
+  // 其他事件（INITIAL_SESSION / SIGNED_IN / TOKEN_REFRESHED）不抢跑
+  // 初始加载由上面的 (async function() ...)() 处理
 });
 
 (async function() {
-  const { data: { user } } = await supabaseClient.auth.getUser();
-  if (user) {
+  const { data: { session } } = await supabaseClient.auth.getSession();
+  if (session) {
     await checkAdmin();
   } else {
     showLogin();
