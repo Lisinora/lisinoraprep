@@ -2007,6 +2007,7 @@ function saveExamModal() {
   renderTimeline();
   renderHomeAlerts();
   updateHomeOverview();
+  CloudSync.pushExams()
 }
 
 function deleteExam() {
@@ -2021,6 +2022,7 @@ function deleteExam() {
   renderHomeAlerts();
   updateHomeOverview();
   showToast('🗑️ 已删除「' + ex.name + '」');
+  CloudSync.pushExams()
 }
 
 $('exam-modal').addEventListener('click', e => {
@@ -2290,6 +2292,7 @@ function saveDiary() {
   showToast('💚 日记已保存');
   renderCalendar();
   updateHomeOverview();
+  CloudSync.pushDiary(currentDiaryDate)
 }
 
 function navigateDate(delta) {
@@ -2492,6 +2495,7 @@ function stopTimer() {
       showToast('🏅 解锁成就：' + newAch[0].title);
     }, 1200);
   }
+  CloudSync.pushStudyDay(getTodayStr())
 }
 
 // 每秒刷新显示
@@ -2628,6 +2632,7 @@ function manualAddDuration() {
       showToast('🏅 解锁成就：' + newAch[0].title);
     }, 1200);
   }
+  CloudSync.pushStudyDay(dateStr)
 }
 
 /* ============================================================
@@ -2746,6 +2751,7 @@ function saveSubjectModal() {
   renderTodaySubjects();
   updateHomeOverview();
   if (currentSubjectName) renderSubjectDetail();
+  CloudSync.pushSubjects()
 }
 
 function renameSubjectData(oldName, newName) {
@@ -3881,12 +3887,36 @@ function importData(event) {
   reader.readAsText(file);
 }
 
-function clearAllData() {
-  if (!confirm('确定要清除所有数据吗？\n\n所有学习记录、日记、考试、科目都会被删除，无法恢复。')) return;
+async function clearAllData() {
+  if (!confirm('确定要清除所有数据吗？\n\n所有学习记录、日记、考试、科目都会被删除，云端和本机同时清除。')) return;
   if (!confirm('再次确认：真的要清除吗？\n\n建议先导出备份再清除。')) return;
+
+  showToast('正在清除云端数据…');
+
+  // 1. 先清云端
+  const { data: { user } } = await supabaseClient.auth.getUser();
+  if (user) {
+    try {
+      await supabaseClient.from('subjects').delete().eq('user_id', user.id);
+      await supabaseClient.from('exams').delete().eq('user_id', user.id);
+      await supabaseClient.from('diaries').delete().eq('user_id', user.id);
+      await supabaseClient.from('study_records').delete().eq('user_id', user.id);
+      await supabaseClient.from('achievements').delete().eq('user_id', user.id);
+    } catch (e) {
+      console.log('清云端失败:', e);
+      alert('云端清除失败，请检查网络后重试');
+      return;
+    }
+  }
+
+  // 2. 清本地
   clearAppData();
-  showToast('已清除，正在刷新…');
-  setTimeout(() => location.reload(), 800);
+
+  // 3. 标记本次会话已同步（防止刷新后重新拉云端）
+  sessionStorage.setItem('cloud_synced', '1');
+
+  showToast('✅ 云端和本机都已清除');
+  setTimeout(() => location.reload(), 1000);
 }
 
    (function init() {
