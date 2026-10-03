@@ -73,6 +73,7 @@
 const SUPABASE_URL = 'https://lbewnabiomoxzufbncfy.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_mKDoj840VIINo5w1moFg0A__JzMQhph';
 const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+let isUserLoggingOut = false;
 const $ = id => document.getElementById(id);
 
 async function adminLogin() {

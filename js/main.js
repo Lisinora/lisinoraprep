@@ -155,16 +155,31 @@ document.getElementById('auth-overlay').style.display = 'none';
   }
 })();
 
-// 后续只监听状态"变化"，不处理 INITIAL_SESSION（避免闪烁）
+// ============================================================
+// 登录状态监听：只有用户主动退出才切回登录页
+// 网络问题导致的 token 刷新失败，保持当前界面不动
+// ============================================================
 supabaseClient.auth.onAuthStateChange((event, session) => {
   if (event === 'INITIAL_SESSION') return;
   const overlay = document.getElementById('auth-overlay');
+
+  if (event === 'SIGNED_OUT') {
+    if (isUserLoggingOut) {
+      // 用户主动退出 → 显示登录页
+      overlay.style.display = 'flex';
+      updateAccountEmail(null);
+      isUserLoggingOut = false;
+    } else {
+      // 网络问题导致的登出 → 忽略，保持界面不动
+      console.log('⚠️ 检测到意外登出（可能是网络问题），保持当前界面');
+    }
+    return;
+  }
+
+  // 登录成功 / token 刷新 → 保持主界面
   if (session) {
     overlay.style.display = 'none';
     updateAccountEmail(session.user);
-  } else {
-    overlay.style.display = 'flex';
-    updateAccountEmail(null);
   }
 });
 
@@ -515,12 +530,14 @@ async function loadProfile() {
 
 async function handleLogout() {
   if (!confirm('确定要退出登录吗？')) return;
+  isUserLoggingOut = true;
   const { error } = await supabaseClient.auth.signOut();
   if (error) {
+    isUserLoggingOut = false;
     alert('退出失败：' + error.message);
     return;
   }
-    sessionStorage.removeItem('cloud_synced');
+  sessionStorage.removeItem('cloud_synced');
   location.reload();
 }
 
@@ -541,7 +558,8 @@ async function deleteAccount() {
   clearLocalUserData();
   localStorage.removeItem('current_user_id');
   sessionStorage.removeItem('cloud_synced');
-
+  
+  isUserLoggingOut = true;
   await supabaseClient.auth.signOut();
   showToast('✅ 账号已注销');
   setTimeout(() => location.reload(), 800);
