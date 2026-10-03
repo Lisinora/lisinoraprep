@@ -139,12 +139,23 @@ async function handleAuth() {
 // 页面初始化时，先隐藏登录页（避免闪一下），再用 getSession 判断
 document.getElementById('auth-overlay').style.display = 'none';
 
+// 直接从 localStorage 读登录信息，不联网！
+function getLocalSession() {
+  try {
+    // Supabase 的存储 key 格式：sb-{项目ID}-auth-token
+    const raw = localStorage.getItem('sb-lbewnabiomoxzufbncfy-auth-token');
+    if (!raw) return null;
+    const s = JSON.parse(raw);
+    return (s && s.access_token && s.user) ? s : null;
+  } catch (e) { return null; }
+}
+
 (async function initAuth() {
-  const { data: { session } } = await supabaseClient.auth.getSession();
+  const session = getLocalSession();
   const overlay = document.getElementById('auth-overlay');
   if (session) {
     overlay.style.display = 'none';
-    console.log('已登录:', session.user.email);
+    console.log('✅ 本地有登录信息，直接进入:', session.user.email);
     updateAccountEmail(session.user);
     trySyncOnce();
     loadProfile();
@@ -558,7 +569,7 @@ async function deleteAccount() {
   clearLocalUserData();
   localStorage.removeItem('current_user_id');
   sessionStorage.removeItem('cloud_synced');
-  
+
   isUserLoggingOut = true;
   await supabaseClient.auth.signOut();
   showToast('✅ 账号已注销');
