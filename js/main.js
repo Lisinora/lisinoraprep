@@ -8,8 +8,21 @@ const SUPABASE_KEY = 'sb_publishable_mKDoj840VIINo5w1moFg0A__JzMQhph';
 const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 // 从本地 session 取当前用户（不发网络请求，断网也能用）
 async function getCurrentUser() {
-  const { data: { session } } = await supabaseClient.auth.getSession();
-  return session ? session.user : null;
+  // 优先从本地 session 读，不联网
+  try {
+    const raw = localStorage.getItem('sb-lbewnabiomoxzufbncfy-auth-token');
+    if (raw) {
+      const s = JSON.parse(raw);
+      if (s && s.user && s.user.id) return s.user;
+    }
+  } catch (e) {}
+  // 本地没有 → 才联网问
+  try {
+    const { data: { session } } = await supabaseClient.auth.getSession();
+    return session ? session.user : null;
+  } catch (e) {
+    return null;
+  }
 }
 
 
@@ -112,6 +125,17 @@ async function handleAuth() {
     if (isLoginMode) {
       const res = await signInWithRetry(email, password, btn);
       if (res.error) throw res.error;
+      // 登录成功 → 写一份兜底信息到本地
+      try {
+        const { data: { session } } = await supabaseClient.auth.getSession();
+        if (session && session.user) {
+          localStorage.setItem('lisinora_last_user', JSON.stringify({
+            id: session.user.id,
+            email: session.user.email,
+            display_name: account
+          }));
+        }
+      } catch (e) {}
     } else {
       const res = await signUpWithRetry(email, password, account, btn);
       if (res.error) throw res.error;
@@ -139,27 +163,22 @@ async function handleAuth() {
 // 页面初始化时，先隐藏登录页（避免闪一下），再用 getSession 判断
 document.getElementById('auth-overlay').style.display = 'none';
 
-// 直接从 localStorage 读登录信息，不联网！
-function getLocalSession() {
-  try {
-    // Supabase 的存储 key 格式：sb-{项目ID}-auth-token
-    const raw = localStorage.getItem('sb-lbewnabiomoxzufbncfy-auth-token');
-    if (!raw) return null;
-    const s = JSON.parse(raw);
-    return (s && s.access_token && s.user) ? s : null;
-  } catch (e) { return null; }
-}
-
 (async function initAuth() {
-  const session = getLocalSession();
   const overlay = document.getElementById('auth-overlay');
-  if (session) {
+  const user = await getCurrentUser();
+  if (user) {
     overlay.style.display = 'none';
-    console.log('✅ 本地有登录信息，直接进入:', session.user.email);
-    updateAccountEmail(session.user);
-    trySyncOnce();
-    loadProfile();
-    loadLetter();
+    console.log('✅ 本地有登录记录，直接进入:', user.email);
+    updateAccountEmail(user);
+    // 先用本地/元数据填一个昵称，避免显示"加载中"
+    currentProfile.nickname = (user.user_metadata && user.user_metadata.display_name) || user.email || '同学';
+    renderProfileHeader();
+    // 后台异步拉取云端数据（失败不影响界面）
+    setTimeout(function() {
+      trySyncOnce().catch(function(){});
+      loadProfile().catch(function(){});
+      loadLetter().catch(function(){});
+    }, 100);
   } else {
     overlay.style.display = 'flex';
     updateAccountEmail(null);
@@ -549,6 +568,7 @@ async function handleLogout() {
     return;
   }
   sessionStorage.removeItem('cloud_synced');
+    localStorage.removeItem('lisinora_last_user');
   location.reload();
 }
 
@@ -567,6 +587,7 @@ async function deleteAccount() {
 
   // 清本地数据
   clearLocalUserData();
+    localStorage.removeItem('lisinora_last_user');
   localStorage.removeItem('current_user_id');
   sessionStorage.removeItem('cloud_synced');
 
