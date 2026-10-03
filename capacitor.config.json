@@ -1,0 +1,10 @@
+{
+  "appId": "com.lisinora.prep",
+  "appName": "LisinoraPrep",
+  "webDir": "www",
+  "plugins": {
+    "CapacitorHttp": {
+      "enabled": true
+    }
+  }
+}

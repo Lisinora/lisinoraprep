@@ -210,10 +210,18 @@ supabaseClient.auth.onAuthStateChange((event, session) => {
   if (session) {
     overlay.style.display = 'none';
     updateAccountEmail(session.user);
+    // 关键：登录成功后触发数据加载（如果之前没拉过）
+    if (event === 'SIGNED_IN') {
+      setTimeout(function() {
+        trySyncOnce().catch(function(){});
+        loadProfile().catch(function(){});
+        loadLetter().catch(function(){});
+      }, 200);
+    }
   }
 });
 
-let hasSyncedThisSession = sessionStorage.getItem('cloud_synced') === '1';
+let hasSyncedThisSession = false;
 
 // 清空本地用户数据（保留设备级设置，如 data_version、last_day）
 function clearLocalUserData() {
@@ -261,11 +269,30 @@ async function trySyncOnce() {
     showToast('☁️ 数据已同步到云端');
   } else if (cloudHasData) {
     console.log('☁️ 云端有数据 → 拉取到本地');
+    showToast('📥 开始拉取云端数据…');
     await CloudSync.pullAll();
-    showToast('☁️ 已从云端恢复数据');
-    setTimeout(() => location.reload(), 800);
+    const localCount = JSON.parse(localStorage.getItem('subjects_list') || '[]').length;
+    showToast('✅ 拉取完成，本地 ' + localCount + ' 个科目');
+    // 拉完直接刷新界面，不 reload（reload 会造成无限循环）
+    setTimeout(function() {
+      try {
+        fillSubjectSelects();
+        renderTodaySubjects();
+        updateStats();
+        drawLineChart();
+        updateHomeOverview();
+        renderSubjectList();
+        renderCalendar();
+        loadDiary();
+        renderTimeline();
+        renderHomeAlerts();
+        loadLetter();
+        loadProfile();
+      } catch (e) { console.log('刷新界面失败', e); }
+    }, 300);
   } else {
     console.log('☁️ 云端和本地都是空的，无需同步');
+    showToast('☁️ 云端没有数据');
   }
 }
 
@@ -3601,4 +3628,80 @@ if ('serviceWorker' in navigator) {
       }
     });
   });
+}
+
+/* ============================================================
+   错误日志收集（方便反馈问题）
+   ============================================================ */
+const ERROR_LOG_KEY = 'lisinora_error_log';
+const ERROR_LOG_MAX = 50;
+
+function logError(source, message) {
+  try {
+    let list = [];
+    try { list = JSON.parse(localStorage.getItem(ERROR_LOG_KEY) || '[]'); } catch (e) {}
+    list.unshift({ t: Date.now(), src: source, msg: String(message).slice(0, 500) });
+    if (list.length > ERROR_LOG_MAX) list = list.slice(0, ERROR_LOG_MAX);
+    localStorage.setItem(ERROR_LOG_KEY, JSON.stringify(list));
+  } catch (e) {}
+}
+
+window.addEventListener('error', function(e) {
+  logError('JS', (e.message || '') + ' @ ' + (e.filename || '') + ':' + (e.lineno || ''));
+});
+
+window.addEventListener('unhandledrejection', function(e) {
+  const r = e.reason;
+  const msg = r ? (r.message || r.toString()) : 'unknown';
+  logError('Promise', msg);
+});
+
+function showErrorLog() {
+  let list = [];
+  try { list = JSON.parse(localStorage.getItem(ERROR_LOG_KEY) || '[]'); } catch (e) {}
+
+  if (!list.length) { alert('暂无错误记录 👍'); return; }
+
+  const text = list.map(function(item, i) {
+    const d = new Date(item.t);
+    const time = d.getFullYear() + '-' +
+                 String(d.getMonth() + 1).padStart(2, '0') + '-' +
+                 String(d.getDate()).padStart(2, '0') + ' ' +
+                 String(d.getHours()).padStart(2, '0') + ':' +
+                 String(d.getMinutes()).padStart(2, '0') + ':' +
+                 String(d.getSeconds()).padStart(2, '0');
+    return '【' + (i + 1) + '】' + time + ' [' + item.src + ']\n' + item.msg;
+  }).join('\n\n');
+
+  const overlay = document.createElement('div');
+  overlay.style.cssText = 'position:fixed; inset:0; background:rgba(0,0,0,0.5); z-index:9999; padding:20px; overflow-y:auto;';
+  overlay.innerHTML =
+    '<div style="background:#fff; border-radius:16px; padding:20px; max-width:600px; margin:20px auto;">' +
+    '<div style="font-size:16px; font-weight:700; margin-bottom:12px;">错误日志（最近 ' + list.length + ' 条）</div>' +
+    '<textarea readonly style="width:100%; height:300px; font-family:monospace; font-size:12px; padding:10px; border:1px solid #ccc; border-radius:8px; box-sizing:border-box;">' + text.replace(/</g, '&lt;') + '</textarea>' +
+    '<div style="display:flex; gap:10px; margin-top:14px;">' +
+    '<button id="copy-err-btn" style="flex:1; padding:10px; background:#52B788; color:#fff; border:none; border-radius:8px; font-weight:700; cursor:pointer;">复制全部</button>' +
+    '<button id="clear-err-btn" style="flex:1; padding:10px; background:#FBE9E9; color:#E88A8A; border:none; border-radius:8px; font-weight:700; cursor:pointer;">清空日志</button>' +
+    '<button id="close-err-btn" style="flex:1; padding:10px; background:#E8E8E8; color:#333; border:none; border-radius:8px; font-weight:700; cursor:pointer;">关闭</button>' +
+    '</div></div>';
+  document.body.appendChild(overlay);
+
+  overlay.querySelector('#copy-err-btn').onclick = function() {
+    const ta = overlay.querySelector('textarea');
+    ta.select();
+    try {
+      document.execCommand('copy');
+      alert('已复制，可以粘贴发给姐姐');
+    } catch (e) {
+      alert('复制失败，请手动长按选择');
+    }
+  };
+  overlay.querySelector('#clear-err-btn').onclick = function() {
+    if (!confirm('确定清空所有错误日志？')) return;
+    localStorage.removeItem(ERROR_LOG_KEY);
+    document.body.removeChild(overlay);
+  };
+  overlay.querySelector('#close-err-btn').onclick = function() {
+    document.body.removeChild(overlay);
+  };
 }
